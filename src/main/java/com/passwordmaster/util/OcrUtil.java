@@ -137,8 +137,10 @@ public final class OcrUtil {
                 }
                 long total = conn.getContentLengthLong();
                 File target = getTrainedDataFile();
+                // 先写 .part 临时文件，下载成功后再改名，避免中断残留半成品导致无法重试
+                File part = new File(getTessdataDir(), TRAINEDDATA_NAME + ".part");
                 try (InputStream in = conn.getInputStream();
-                     OutputStream out = new FileOutputStream(target)) {
+                     OutputStream out = new FileOutputStream(part)) {
                     byte[] buf = new byte[8192];
                     long done = 0;
                     int n;
@@ -152,6 +154,15 @@ public final class OcrUtil {
                     }
                     out.flush();
                 }
+                if (part.length() == 0) {
+                    throw new IOException("下载内容为空");
+                }
+                if (target.exists() && !target.delete()) {
+                    throw new IOException("无法替换已存在的语言包文件");
+                }
+                if (!part.renameTo(target)) {
+                    throw new IOException("语言包文件重命名失败");
+                }
                 result[0] = true;
                 SwingUtilities.invokeLater(() -> {
                     dlg.dispose();
@@ -159,6 +170,14 @@ public final class OcrUtil {
                             JOptionPane.INFORMATION_MESSAGE);
                 });
             } catch (Exception ex) {
+                // 清理半成品 .part，保证 isLanguageReady 不误判、下次可重试
+                try {
+                    File partFile = new File(getTessdataDir(), TRAINEDDATA_NAME + ".part");
+                    if (partFile.exists()) {
+                        partFile.delete();
+                    }
+                } catch (Exception ignored) {
+                }
                 SwingUtilities.invokeLater(() -> {
                     dlg.dispose();
                     JOptionPane.showMessageDialog(parent,

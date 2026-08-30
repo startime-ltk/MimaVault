@@ -9,7 +9,7 @@ import java.awt.geom.Rectangle2D;
 /**
  * 艺术字标题组件（仅表现层）
  * 使用 Graphics2D 绘制：渐变文字 + 白色描边 + 半透明投影，提升立体感。
- * 用于主界面标题「密码大师 PasswordMaster」与登录窗口标题。
+ * 用于主界面标题「密匣 MimaVault」与登录窗口标题。
  */
 public class ArtTextLabel extends JLabel {
 

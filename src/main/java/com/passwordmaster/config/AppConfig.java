@@ -11,7 +11,8 @@ import java.nio.file.Paths;
 
 /**
  * 本地应用配置（data/config.json）
- * 目前保存数据目录等信息，为后期扩展预留
+ * 数据目录固定为运行目录下的 data/（见 DATA_DIR 常量），
+ * 保留 save() 写配置框架便于后期扩展，不再提供可误导的 dataDir 字段。
  */
 public class AppConfig {
 
@@ -32,22 +33,10 @@ public class AppConfig {
     /** 数据库文件路径 data/PasswordMaster.db */
     public static final Path DB_FILE = DATA_DIR.resolve("PasswordMaster.db");
 
-    private String dataDir;
-
     public static AppConfig load() {
-        AppConfig config = new AppConfig();
-        if (Files.exists(CONFIG_FILE)) {
-            try {
-                String json = Files.readString(CONFIG_FILE, StandardCharsets.UTF_8);
-                AppConfig loaded = GSON.fromJson(json, AppConfig.class);
-                if (loaded != null && loaded.dataDir != null) {
-                    config.dataDir = loaded.dataDir;
-                }
-            } catch (Exception e) {
-                System.err.println("读取配置失败，使用默认配置: " + e.getMessage());
-            }
-        }
-        return config;
+        // 数据目录固定为运行目录下的 data/（见 DATA_DIR 常量），config.json 不再有生效字段；
+        // 保留 save() 仅为兼容旧逻辑与后期扩展。
+        return new AppConfig();
     }
 
     public void save() {
@@ -57,13 +46,5 @@ public class AppConfig {
         } catch (IOException e) {
             throw new IllegalStateException("保存配置失败", e);
         }
-    }
-
-    public String getDataDir() {
-        return dataDir;
-    }
-
-    public void setDataDir(String dataDir) {
-        this.dataDir = dataDir;
     }
 }

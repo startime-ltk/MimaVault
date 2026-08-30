@@ -1,4 +1,4 @@
-# password-master（密码大师）
+# 密匣 MimaVault（password-master）
 
 轻量化本地 PC 密码管理程序。Java 17 + Maven + Swing + SQLite + FlatLaf，数据全部本地存储、零联网。
 

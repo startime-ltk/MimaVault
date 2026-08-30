@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title 密码大师 PasswordMaster
+title 密匣 MimaVault
 cd /d "%~dp0"
 if not exist "target\PasswordMaster.jar" (
     echo [错误] 未找到 target\PasswordMaster.jar

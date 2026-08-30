@@ -1,5 +1,6 @@
 package com.passwordmaster.ui;
 
+import com.passwordmaster.config.AppConfig;
 import com.passwordmaster.model.Entry;
 import com.passwordmaster.service.PasswordService;
 import com.passwordmaster.util.BackupUtil;
@@ -644,6 +645,11 @@ public class MainFrame extends JFrame {
         int skipped = 0;
         int restored = 0;
 
+        // 覆盖导入保护：清空旧数据前自动备份到 data/backup/，防止导入失败导致原数据全丢
+        Path autoBackup = backupBeforeOverwrite();
+        if (autoBackup == IMPORT_CANCELLED) {
+            return;
+        }
         if ("覆盖".equals(mode)) {
             service.clearAll();
         }
@@ -656,31 +662,79 @@ public class MainFrame extends JFrame {
             }
         }
 
-        for (BackupUtil.BackupItem item : pack.items) {
-            Entry e = item.toEntry();
-            // 恢复图片
-            if (item.imageBase64 != null && !item.imageBase64.isEmpty()) {
-                Path imgPath = ImageUtil.base64ToImage(item.imageBase64, item.imageName);
-                if (imgPath != null) {
-                    e.setImagePath("images/" + imgPath.getFileName().toString());
+        try {
+            for (BackupUtil.BackupItem item : pack.items) {
+                Entry e = item.toEntry();
+                // 恢复图片
+                if (item.imageBase64 != null && !item.imageBase64.isEmpty()) {
+                    Path imgPath = ImageUtil.base64ToImage(item.imageBase64, item.imageName);
+                    if (imgPath != null) {
+                        e.setImagePath("images/" + imgPath.getFileName().toString());
+                    }
                 }
-            }
-            if ("合并".equals(mode)) {
-                String k = keyOf(e);
-                if (existingKeys.contains(k)) {
-                    skipped++;
-                    continue;
+                if ("合并".equals(mode)) {
+                    String k = keyOf(e);
+                    if (existingKeys.contains(k)) {
+                        skipped++;
+                        continue;
+                    }
+                    existingKeys.add(k);
                 }
-                existingKeys.add(k);
+                service.insertAll(java.util.Collections.singletonList(e));
+                restored++;
             }
-            service.insertAll(java.util.Collections.singletonList(e));
-            restored++;
+        } catch (Exception ex) {
+            refreshTable(null, null);
+            if (autoBackup != null) {
+                JOptionPane.showMessageDialog(this,
+                        "导入失败，已自动备份原数据到：\n" + autoBackup
+                                + "\n\n请先恢复备份，或排查导入文件后重试。",
+                        "导入失败", JOptionPane.ERROR_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                        "导入失败：" + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                        "错误", JOptionPane.ERROR_MESSAGE);
+            }
+            return;
         }
 
         refreshTable(null, null);
         JOptionPane.showMessageDialog(this,
                 "导入完成：成功 " + restored + " 条" + (skipped > 0 ? "，重复跳过 " + skipped + " 条" : ""),
                 "导入完成", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /** 覆盖导入取消哨兵 */
+    private static final Path IMPORT_CANCELLED = Paths.get("__CANCELLED__");
+
+    /**
+     * 覆盖导入前的自动备份：导出当前全部条目为 data/backup/backup_时间戳_before_import.pmaster
+     *
+     * @return 备份文件路径；空库/用户放弃备份继续导入时返回 null；用户取消导入返回 IMPORT_CANCELLED
+     */
+    private Path backupBeforeOverwrite() {
+        List<Entry> all = service.listEntries();
+        if (all.isEmpty()) {
+            return null;
+        }
+        try {
+            Path dir = AppConfig.DATA_DIR.resolve("backup");
+            Files.createDirectories(dir);
+            Path target = dir.resolve("backup_"
+                    + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date())
+                    + "_before_import.pmaster");
+            BackupUtil.export(all, key, service.getMasterSaltHex(), service.getMasterIterations(), target);
+            return target;
+        } catch (Exception ex) {
+            int r = JOptionPane.showConfirmDialog(this,
+                    "覆盖前自动备份失败：" + ex.getMessage()
+                            + "\n\n若继续覆盖导入，原数据可能无法恢复。是否仍要继续？",
+                    "备份失败", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (r != JOptionPane.YES_OPTION) {
+                return IMPORT_CANCELLED;
+            }
+            return null;
+        }
     }
 
     private String keyOf(Entry e) {
