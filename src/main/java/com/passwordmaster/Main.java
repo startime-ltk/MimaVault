@@ -9,6 +9,7 @@ import com.passwordmaster.ui.MainFrame;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.Arrays;
 
 /**
  * 密码大师 入口
@@ -38,15 +39,18 @@ public class Main {
             } catch (Exception ignored) {
             }
 
-            // 主密码登录 / 设置（成功返回主密码明文，用于派生密钥）
-            String masterPassword = LoginDialog.showAndVerify(null, service);
+            // 主密码登录 / 设置（成功返回主密码明文 char[]，用完即清）
+            char[] masterPassword = LoginDialog.showAndVerify(null, service);
             if (masterPassword == null) {
                 System.exit(0);
                 return;
             }
-
-            MainFrame frame = new MainFrame(service, service.deriveKey(masterPassword));
-            frame.setVisible(true);
+            try {
+                MainFrame frame = new MainFrame(service, service.deriveKey(masterPassword));
+                frame.setVisible(true);
+            } finally {
+                Arrays.fill(masterPassword, '\0');
+            }
         });
     }
 }

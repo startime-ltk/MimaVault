@@ -324,7 +324,13 @@ public class EntryEditDialog extends JDialog {
             JOptionPane.showMessageDialog(this, "平台名称不能为空", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        String password = new String(passwordField.getPassword()).trim();
+        char[] pwdChars = passwordField.getPassword();
+        String password;
+        try {
+            password = new String(pwdChars).trim();
+        } finally {
+            java.util.Arrays.fill(pwdChars, '\0'); // 明文用完即清
+        }
         boolean hasPassword = password.length() > 0 && !"********".equals(password);
         boolean hasImage = imagePath != null && !imagePath.isEmpty();
         boolean keepOldPassword = isEdit && "********".equals(password);
@@ -369,7 +375,12 @@ public class EntryEditDialog extends JDialog {
 
     /** 是否保留原密码（编辑时密码框未改动） */
     public boolean isKeepOldPassword() {
-        return isEdit && new String(passwordField.getPassword()).equals("********");
+        char[] pwdChars = passwordField.getPassword();
+        try {
+            return isEdit && new String(pwdChars).equals("********");
+        } finally {
+            java.util.Arrays.fill(pwdChars, '\0'); // 明文用完即清
+        }
     }
 
     private static String nullToEmpty(String s) {

@@ -256,7 +256,12 @@ public class MainFrame extends JFrame {
         }
         SecretKey importKey;
         try {
-            importKey = com.passwordmaster.util.AesUtil.deriveKey(new String(pwdField.getPassword()));
+            char[] importPwd = pwdField.getPassword();
+            try {
+                importKey = com.passwordmaster.util.AesUtil.deriveKey(new String(importPwd));
+            } finally {
+                java.util.Arrays.fill(importPwd, '\0'); // 明文用完即清
+            }
             BackupUtil.BackupPackage pack = BackupUtil.importBackup(source, importKey);
             if (pack.items == null || pack.items.isEmpty()) {
                 JOptionPane.showMessageDialog(this, "备份文件中没有数据", "提示", JOptionPane.INFORMATION_MESSAGE);

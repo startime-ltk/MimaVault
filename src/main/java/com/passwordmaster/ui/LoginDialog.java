@@ -4,19 +4,34 @@ import com.passwordmaster.service.PasswordService;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.Arrays;
 
 /**
  * 主密码登录/设置对话框
  * - 首次启动：设置主密码
- * - 之后启动：验证主密码，错误提示重试
+ * - 之后启动：验证主密码（PBKDF2），连续输错 5 次锁定 30 秒
+ * - 检测到旧版 SHA-256 哈希时自动触发一次性迁移升级
+ * - 密码明文以 char[] 承载，用完即清
  */
 public class LoginDialog extends JDialog {
+
+    /** 最大失败次数 / 锁定时长（秒） */
+    private static final int MAX_FAILURES = 5;
+    private static final int LOCK_SECONDS = 30;
 
     private final PasswordService service;
     private final boolean setupMode;
     private final JPasswordField pwdField = new JPasswordField(16);
     private final JPasswordField pwdField2 = new JPasswordField(16);
+    private final JButton okBtn = new JButton("确定");
+    private final JLabel statusLabel = new JLabel(" ");
+
     private boolean authenticated = false;
+    private char[] masterPassword = null;
+    private int failedCount = 0;
+    private boolean locked = false;
+    private Timer lockTimer;
+    private int lockRemaining;
 
     public LoginDialog(Window owner, PasswordService service, boolean setupMode) {
         super(owner, setupMode ? "设置主密码" : "密码大师 - 请输入主密码", ModalityType.APPLICATION_MODAL);
@@ -54,7 +69,7 @@ public class LoginDialog extends JDialog {
 
         JLabel hint = new JLabel(setupMode
                 ? "主密码用于加密全部数据，请务必牢记，丢失无法找回"
-                : "提示：主密码用于解密本地数据，忘记无法找回");
+                : "提示：主密码用于解密本地数据，忘记无法找回；连续输错 5 次将锁定 30 秒");
         hint.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
         hint.setForeground(new Color(140, 140, 140));
         gbc.gridx = 0;
@@ -62,15 +77,23 @@ public class LoginDialog extends JDialog {
         gbc.gridwidth = 2;
         panel.add(hint, gbc);
 
+        // 状态行（错误提示 / 锁定倒计时）
+        statusLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        statusLabel.setForeground(new Color(180, 60, 60));
+        gbc.gridx = 0;
+        gbc.gridy = setupMode ? 4 : 3;
+        gbc.gridwidth = 2;
+        gbc.anchor = GridBagConstraints.CENTER;
+        panel.add(statusLabel, gbc);
+
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
-        JButton okBtn = new JButton("确定");
         okBtn.addActionListener(e -> onOk());
         JButton cancelBtn = new JButton("退出");
         cancelBtn.addActionListener(e -> dispose());
         btnPanel.add(okBtn);
         btnPanel.add(cancelBtn);
         gbc.gridx = 0;
-        gbc.gridy = setupMode ? 4 : 3;
+        gbc.gridy = setupMode ? 5 : 4;
         gbc.gridwidth = 2;
         gbc.anchor = GridBagConstraints.CENTER;
         panel.add(btnPanel, gbc);
@@ -83,33 +106,89 @@ public class LoginDialog extends JDialog {
     }
 
     private void onOk() {
-        String pwd = new String(pwdField.getPassword());
-        if (pwd.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "主密码不能为空", "提示", JOptionPane.WARNING_MESSAGE);
-            return;
+        if (locked) {
+            return; // 锁定期间按钮已禁用，防御性拦截
         }
-        if (setupMode) {
-            String pwd2 = new String(pwdField2.getPassword());
-            if (!pwd.equals(pwd2)) {
-                JOptionPane.showMessageDialog(this, "两次输入的密码不一致", "提示", JOptionPane.WARNING_MESSAGE);
+        char[] pwd = pwdField.getPassword();
+        try {
+            if (pwd.length == 0) {
+                statusLabel.setText("主密码不能为空");
                 return;
             }
-            if (pwd.length() < 6) {
-                JOptionPane.showMessageDialog(this, "建议主密码不少于 6 位（可继续）", "提示", JOptionPane.WARNING_MESSAGE);
-            }
-            service.setMasterPassword(pwd);
-            authenticated = true;
-            dispose();
-        } else {
-            if (service.verifyMasterPassword(pwd)) {
+            if (setupMode) {
+                char[] pwd2 = pwdField2.getPassword();
+                try {
+                    if (!Arrays.equals(pwd, pwd2)) {
+                        statusLabel.setText("两次输入的密码不一致");
+                        return;
+                    }
+                } finally {
+                    Arrays.fill(pwd2, '\0');
+                }
+                if (pwd.length < 6) {
+                    JOptionPane.showMessageDialog(this, "建议主密码不少于 6 位（可继续）", "提示", JOptionPane.WARNING_MESSAGE);
+                }
+                service.setMasterPassword(pwd);
                 authenticated = true;
+                masterPassword = Arrays.copyOf(pwd, pwd.length);
                 dispose();
             } else {
-                JOptionPane.showMessageDialog(this, "主密码错误，请重试", "验证失败", JOptionPane.ERROR_MESSAGE);
+                PasswordService.VerifyResult result = service.verifyMasterPassword(pwd);
+                if (result == PasswordService.VerifyResult.MATCH
+                        || result == PasswordService.VerifyResult.MATCH_NEED_UPGRADE) {
+                    // 旧格式数据：一次性迁移到 PBKDF2 新密钥
+                    if (result == PasswordService.VerifyResult.MATCH_NEED_UPGRADE) {
+                        statusLabel.setText("正在升级加密方案...");
+                        try {
+                            service.upgradeToPbkdf2(pwd);
+                        } catch (Exception ex) {
+                            statusLabel.setText("升级失败：" + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+                            return;
+                        }
+                    }
+                    failedCount = 0;
+                    authenticated = true;
+                    masterPassword = Arrays.copyOf(pwd, pwd.length);
+                    dispose();
+                } else {
+                    failedCount++;
+                    if (failedCount >= MAX_FAILURES) {
+                        startLock();
+                    } else {
+                        statusLabel.setText("主密码错误（" + failedCount + "/" + MAX_FAILURES + "），请重试");
+                        pwdField.setText("");
+                        pwdField.requestFocus();
+                    }
+                }
+            }
+        } finally {
+            Arrays.fill(pwd, '\0');
+        }
+    }
+
+    /** 锁定 30 秒：禁用按钮 + 倒计时显示（仅进程内存，不持久化） */
+    private void startLock() {
+        locked = true;
+        failedCount = 0;
+        lockRemaining = LOCK_SECONDS;
+        okBtn.setEnabled(false);
+        pwdField.setEnabled(false);
+        statusLabel.setText("尝试次数过多，请 " + lockRemaining + " 秒后重试");
+        lockTimer = new Timer(1000, e -> {
+            lockRemaining--;
+            if (lockRemaining <= 0) {
+                lockTimer.stop();
+                locked = false;
+                okBtn.setEnabled(true);
+                pwdField.setEnabled(true);
+                statusLabel.setText(" ");
                 pwdField.setText("");
                 pwdField.requestFocus();
+            } else {
+                statusLabel.setText("尝试次数过多，请 " + lockRemaining + " 秒后重试");
             }
-        }
+        });
+        lockTimer.start();
     }
 
     /** 是否通过验证 */
@@ -117,16 +196,21 @@ public class LoginDialog extends JDialog {
         return authenticated;
     }
 
+    /** 验证成功后的主密码明文副本（char[]，调用方用完请 Arrays.fill 清零） */
+    public char[] getMasterPassword() {
+        return masterPassword;
+    }
+
     /**
      * 便捷入口：弹出登录/设置对话框
-     * 验证成功返回主密码明文，用于派生 AES 密钥；取消/失败返回 null
+     * 验证成功返回主密码明文 char[]（用于派生密钥，用完请清零）；取消/失败返回 null
      */
-    public static String showAndVerify(Window owner, PasswordService service) {
+    public static char[] showAndVerify(Window owner, PasswordService service) {
         boolean setup = !service.isInitialized();
         LoginDialog dlg = new LoginDialog(owner, service, setup);
         dlg.setVisible(true);
         if (dlg.isAuthenticated()) {
-            return new String(dlg.pwdField.getPassword());
+            return dlg.getMasterPassword();
         }
         return null;
     }

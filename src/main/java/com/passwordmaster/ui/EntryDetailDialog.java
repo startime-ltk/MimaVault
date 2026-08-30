@@ -2,6 +2,7 @@ package com.passwordmaster.ui;
 
 import com.passwordmaster.model.Entry;
 import com.passwordmaster.service.PasswordService;
+import com.passwordmaster.util.ClipboardSafe;
 import com.passwordmaster.util.ImageUtil;
 
 import javax.crypto.SecretKey;
@@ -56,6 +57,10 @@ public class EntryDetailDialog extends JDialog {
         toggleBtn.addActionListener(e -> togglePassword());
         pwdPanel.add(passwordLabel);
         pwdPanel.add(toggleBtn);
+        // 复制密码：经 ClipboardSafe 复制，30 秒后自动清除剪贴板
+        JButton copyBtn = new JButton("复制");
+        copyBtn.addActionListener(e -> copyPassword());
+        pwdPanel.add(copyBtn);
         gbc.gridx = 1;
         info.add(pwdPanel, gbc);
         row++;
@@ -144,6 +149,19 @@ public class EntryDetailDialog extends JDialog {
         } else {
             passwordLabel.setText("••••••••");
         }
+    }
+
+    /** 复制密码到剪贴板（30 秒后自动清除） */
+    private void copyPassword() {
+        if (plainPassword == null) {
+            plainPassword = service.decryptPassword(entry, key);
+        }
+        if (plainPassword.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "该条目未设置密码", "提示", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        ClipboardSafe.copySecret(plainPassword);
+        JOptionPane.showMessageDialog(this, "密码已复制，30 秒后自动从剪贴板清除", "复制成功", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private static String nullToEmpty(String s) {
