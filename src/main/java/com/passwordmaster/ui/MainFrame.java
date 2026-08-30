@@ -2,6 +2,7 @@ package com.passwordmaster.ui;
 
 import com.passwordmaster.config.AppConfig;
 import com.passwordmaster.model.Entry;
+import com.passwordmaster.service.PasswordHealthChecker;
 import com.passwordmaster.service.PasswordService;
 import com.passwordmaster.util.BackupUtil;
 import com.passwordmaster.util.ClipboardSafe;
@@ -116,6 +117,12 @@ public class MainFrame extends JFrame {
 
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         row2.setOpaque(false);
+        // 密码健康检测入口：糖果绿胖按钮，打开安全报告（基于内存明文检测，不落盘）
+        GradientButton healthBtn = new GradientButton("安全报告",
+                new Color(0x7ED321), new Color(0x4CAF50), Color.WHITE, new Color(0x5DAF1E));
+        healthBtn.setPreferredSize(new Dimension(120, 32));
+        healthBtn.addActionListener(e -> onSecurityReport());
+        row2.add(healthBtn);
         row2.add(createToolButton("新增", e -> onAdd()));
         row2.add(createToolButton("编辑", e -> onEdit()));
         row2.add(createToolButton("删除", e -> onDelete()));
@@ -452,6 +459,58 @@ public class MainFrame extends JFrame {
     private void toggleWeakFilter() {
         weakOnly = !weakOnly;
         refreshTable(null, null);
+    }
+
+    /**
+     * 打开密码健康检测「安全报告」。
+     * 基于内存中已解密条目检测，不重新读库、不落盘、不打印明文。
+     */
+    private void onSecurityReport() {
+        List<Entry> all = service.listEntries();
+        java.util.Map<Long, String> plainMap = new java.util.HashMap<>();
+        for (Entry e : all) {
+            plainMap.put(e.getId(), service.decryptPassword(e, key));
+        }
+        PasswordHealthChecker.ReportResult result =
+                PasswordHealthChecker.check(all, e -> plainMap.get(e.getId()));
+        new SecurityReportDialog(this, result, this::locateEntryById).setVisible(true);
+    }
+
+    /**
+     * 定位并选中指定条目（安全报告跳转用）。
+     * 若条目不在当前列表（处于搜索/分类/弱密码筛选状态），先恢复全部显示再定位，
+     * 并滚动到可视区域选中。
+     */
+    public void locateEntryById(long entryId) {
+        int index = -1;
+        for (int i = 0; i < currentList.size(); i++) {
+            if (currentList.get(i).getId() == entryId) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            // 不在当前列表：清空搜索与筛选，恢复全部条目
+            searchField.setText("");
+            categoryFilter.setSelectedItem("全部");
+            weakOnly = false;
+            refreshTable(null, null);
+            for (int i = 0; i < currentList.size(); i++) {
+                if (currentList.get(i).getId() == entryId) {
+                    index = i;
+                    break;
+                }
+            }
+        }
+        if (index < 0) {
+            statusLabel.setText("未找到该条目（可能已被删除）");
+            return;
+        }
+        table.setRowSelectionInterval(index, index);
+        table.scrollRectToVisible(table.getCellRect(index, 0, true));
+        table.requestFocusInWindow();
+        Entry hit = currentList.get(index);
+        statusLabel.setText("已定位：" + hit.getPlatform() + (hit.getAccount() == null ? "" : " / " + hit.getAccount()));
     }
 
     private Entry selectedEntry() {
