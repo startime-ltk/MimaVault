@@ -227,6 +227,7 @@ public final class SmartImportDialog {
         JScrollPane sp = new JScrollPane(area);
         sp.setPreferredSize(new Dimension(420, 200));
         JPanel panel = new JPanel(new BorderLayout(6, 6));
+        panel.setOpaque(false);
         panel.add(new JLabel("请粘贴文字（支持标签式：平台/账号/密码；紧凑式：微信|xxx|123456）"), BorderLayout.NORTH);
         panel.add(sp, BorderLayout.CENTER);
         int r = JOptionPane.showConfirmDialog(owner, panel, "手动粘贴文本", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);

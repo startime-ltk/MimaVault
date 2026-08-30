@@ -2,6 +2,7 @@ package com.passwordmaster.ui;
 
 import com.passwordmaster.config.AppConfig;
 import com.passwordmaster.model.Entry;
+import com.passwordmaster.util.DragDropUtil;
 import com.passwordmaster.util.ImageUtil;
 import com.passwordmaster.util.OcrUtil;
 import com.passwordmaster.util.TextParser;
@@ -9,6 +10,7 @@ import com.passwordmaster.util.TextParser;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -43,10 +45,12 @@ public class EntryEditDialog extends JDialog {
         this.entry = entry == null ? new Entry() : entry;
         this.isEdit = entry != null;
         this.imagePath = this.entry.getImagePath();
+        setIconImage(UiTheme.getAppIcon());
         this.gestureSeq = this.entry.getGestureSeq();
 
         setLayout(new BorderLayout());
-        JPanel form = new JPanel(new GridBagLayout());
+        RoundedPanel form = new RoundedPanel(16);
+        form.setLayout(new GridBagLayout());
         form.setBorder(BorderFactory.createEmptyBorder(12, 14, 8, 14));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
@@ -110,12 +114,13 @@ public class EntryEditDialog extends JDialog {
         gbc.gridy = row;
         form.add(new JLabel("截图附件："), gbc);
         JPanel imgPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        imgPanel.setOpaque(false);
         imageLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
-        JButton chooseImg = new JButton("选择图片...");
+        GradientButton chooseImg = GradientButton.secondary("选择图片...");
         chooseImg.addActionListener(e -> chooseImage());
-        JButton ocrFill = new JButton("识图填充...");
+        GradientButton ocrFill = GradientButton.secondary("识图填充...");
         ocrFill.addActionListener(e -> ocrFill());
-        JButton clearImg = new JButton("移除");
+        GradientButton clearImg = GradientButton.secondary("移除");
         clearImg.addActionListener(e -> {
             imagePath = null;
             imageLabel.setText("未选择");
@@ -127,6 +132,17 @@ public class EntryEditDialog extends JDialog {
         imgPanel.add(imageLabel);
         gbc.gridx = 1;
         form.add(imgPanel, gbc);
+        // 图片区域支持拖入图片：设置附件并自动触发识图填充
+        DragDropUtil.installImageDrop(imgPanel, (images, ignored) -> {
+            if (images.isEmpty()) {
+                if (!ignored.isEmpty()) {
+                    JOptionPane.showMessageDialog(this,
+                            "仅支持图片文件（png/jpg/jpeg/bmp/gif/webp）", "提示", JOptionPane.WARNING_MESSAGE);
+                }
+                return;
+            }
+            handleDropImage(images.get(0));
+        });
 
         // 手势密码
         row++;
@@ -134,8 +150,9 @@ public class EntryEditDialog extends JDialog {
         gbc.gridy = row;
         form.add(new JLabel("手势密码："), gbc);
         JPanel gesturePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        gesturePanel.setOpaque(false);
         gestureLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
-        JButton recordGesture = new JButton("录入手势...");
+        GradientButton recordGesture = GradientButton.secondary("录入手势...");
         recordGesture.addActionListener(e -> {
             String seq = GestureDialog.showDialog(this, gestureSeq);
             if (seq != null) {
@@ -143,7 +160,7 @@ public class EntryEditDialog extends JDialog {
                 gestureLabel.setText(seq);
             }
         });
-        JButton clearGesture = new JButton("清除");
+        GradientButton clearGesture = GradientButton.secondary("清除");
         clearGesture.addActionListener(e -> {
             gestureSeq = null;
             gestureLabel.setText("未设置");
@@ -157,9 +174,10 @@ public class EntryEditDialog extends JDialog {
         add(form, BorderLayout.CENTER);
 
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton ok = new JButton("保存");
+        bottom.setOpaque(false);
+        GradientButton ok = GradientButton.primary("保存");
         ok.addActionListener(e -> onSave());
-        JButton cancel = new JButton("取消");
+        GradientButton cancel = GradientButton.secondary("取消");
         cancel.addActionListener(e -> dispose());
         bottom.add(ok);
         bottom.add(cancel);
@@ -217,6 +235,28 @@ public class EntryEditDialog extends JDialog {
                 JOptionPane.showMessageDialog(this, "图片复制失败", "错误", JOptionPane.ERROR_MESSAGE);
             }
         }
+    }
+
+    /** 拖入图片：复制为附件并自动触发识图填充（复用 ocrFill 逻辑） */
+    private void handleDropImage(File f) {
+        Path source = f.toPath();
+        if (!ImageUtil.isSupportedImage(source)) {
+            JOptionPane.showMessageDialog(this, "不支持的图片格式", "提示", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String rel = ImageUtil.importImageToData(source);
+        if (rel == null) {
+            JOptionPane.showMessageDialog(this, "图片复制失败", "错误", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        imagePath = rel;
+        ImageIcon icon = ImageUtil.loadScaledIcon(AppConfig.DATA_DIR.resolve(rel), 80);
+        if (icon != null) {
+            imageLabel.setIcon(icon);
+        }
+        imageLabel.setText(f.getName());
+        // 附件已就绪，ocrFill 会优先复用 imagePath，不再弹文件选择器
+        ocrFill();
     }
 
     /** 识图填充：OCR 识别截图并自动填充字段（只填充识别到的字段） */

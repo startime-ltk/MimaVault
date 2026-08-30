@@ -18,6 +18,7 @@ public class ImageViewerDialog extends JDialog {
 
     public ImageViewerDialog(Window owner, String title, Path imagePath) {
         super(owner, title, ModalityType.APPLICATION_MODAL);
+        setIconImage(UiTheme.getAppIcon());
         ImageIcon icon = new ImageIcon(imagePath.toString());
         originalIcon = icon;
         imageLabel = new JLabel(icon, SwingConstants.CENTER);

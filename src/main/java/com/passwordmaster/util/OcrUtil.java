@@ -57,11 +57,19 @@ public final class OcrUtil {
      * 首次使用会先下载中文语言包；语言包缺失且用户取消返回 null
      */
     public static String doOcr(File imageFile) throws Exception {
+        return doOcr(imageFile, null);
+    }
+
+    /**
+     * 识别图片中的文字（带父窗口）
+     * 首次使用会先下载中文语言包（确认/进度对话框以 parent 为宿主）；语言包缺失且用户取消返回 null
+     */
+    public static String doOcr(File imageFile, Component parent) throws Exception {
         if (imageFile == null || !imageFile.exists()) {
             throw new IllegalArgumentException("图片文件不存在");
         }
         if (!isLanguageReady()) {
-            boolean downloaded = downloadLanguagePack(null);
+            boolean downloaded = downloadLanguagePack(parent);
             if (!downloaded) {
                 return null;
             }

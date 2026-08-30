@@ -28,6 +28,8 @@ public class ImportPreviewDialog extends JDialog {
     private final PreviewTableModel model;
     private final JTable table;
     private final Set<String> existingKeys = new HashSet<>();
+    private final JCheckBox selectAllBox = new JCheckBox("全选");
+    private final JLabel checkedLabel = new JLabel();
 
     private static final String[] COLUMNS = {"导入", "平台", "账号", "密码", "手机", "邮箱", "来源"};
 
@@ -37,6 +39,7 @@ public class ImportPreviewDialog extends JDialog {
         this.service = service;
         this.key = key;
         this.records = records;
+        setIconImage(UiTheme.getAppIcon());
 
         for (Entry e : service.listEntries()) {
             existingKeys.add(keyOf(e));
@@ -45,9 +48,13 @@ public class ImportPreviewDialog extends JDialog {
         setLayout(new BorderLayout());
         model = new PreviewTableModel(records);
         table = new JTable(model);
-        table.setRowHeight(24);
-        table.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        table.setRowHeight(28);
+        table.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
         table.getTableHeader().setFont(new Font("Microsoft YaHei", Font.BOLD, 12));
+        table.setSelectionBackground(UiTheme.TABLE_SELECT);
+        table.setSelectionForeground(Color.WHITE);
+        table.setFillsViewportHeight(true);
+        GradientTableHeader.apply(table);
         table.getColumnModel().getColumn(0).setPreferredWidth(40);
         table.getColumnModel().getColumn(1).setPreferredWidth(100);
         table.getColumnModel().getColumn(2).setPreferredWidth(120);
@@ -55,20 +62,45 @@ public class ImportPreviewDialog extends JDialog {
         table.getColumnModel().getColumn(4).setPreferredWidth(100);
         table.getColumnModel().getColumn(5).setPreferredWidth(140);
         table.getColumnModel().getColumn(6).setPreferredWidth(80);
-        add(new JScrollPane(table), BorderLayout.CENTER);
 
-        // 顶部统计
+        RoundedPanel tableCard = new RoundedPanel(14);
+        tableCard.setLayout(new BorderLayout());
+        tableCard.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        JScrollPane sp = new JScrollPane(table);
+        sp.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        sp.getViewport().setBackground(Color.WHITE);
+        tableCard.add(sp, BorderLayout.CENTER);
+        add(tableCard, BorderLayout.CENTER);
+
+        // 顶部统计与全选控制
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        top.setOpaque(false);
         top.add(new JLabel("共解析 " + records.size() + " 条记录"));
+        selectAllBox.setFont(new Font("Microsoft YaHei", Font.BOLD, 12));
+        selectAllBox.setOpaque(false);
+        selectAllBox.setForeground(UiTheme.TEXT_MAIN);
+        selectAllBox.addActionListener(e -> {
+            model.setAllChecked(selectAllBox.isSelected());
+            updateCheckedLabel();
+        });
+        top.add(selectAllBox);
+        checkedLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        checkedLabel.setForeground(UiTheme.TEXT_SUB);
+        top.add(checkedLabel);
         top.add(new JLabel("  来源：" + sourceSummary()));
         top.add(new JLabel("  （勾选导入，双击单元格可修改）"));
         add(top, BorderLayout.NORTH);
 
+        // 勾选状态变化时同步统计与全选框
+        model.addTableModelListener(e -> updateCheckedLabel());
+        updateCheckedLabel();
+
         // 底部按钮
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton ok = new JButton("确认导入");
+        bottom.setOpaque(false);
+        GradientButton ok = GradientButton.primary("确认导入");
         ok.addActionListener(e -> onConfirm());
-        JButton cancel = new JButton("取消");
+        GradientButton cancel = GradientButton.secondary("取消");
         cancel.addActionListener(e -> dispose());
         bottom.add(ok);
         bottom.add(cancel);
@@ -90,11 +122,20 @@ public class ImportPreviewDialog extends JDialog {
         return types.isEmpty() ? "未知" : String.join("、", types);
     }
 
+    private void updateCheckedLabel() {
+        int total = records.size();
+        int checked = model.checkedCount();
+        checkedLabel.setText("已勾选 " + checked + " / " + total + " 条");
+        selectAllBox.setSelected(total > 0 && checked == total);
+    }
+
     private void onConfirm() {
         List<Entry> toInsert = new ArrayList<>();
-        int skipped = 0;
+        int unchecked = 0;
+        int duplicateSkipped = 0;
         for (int i = 0; i < records.size(); i++) {
             if (!model.isChecked(i)) {
+                unchecked++;
                 continue;
             }
             Entry e = records.get(i).entry;
@@ -104,7 +145,7 @@ public class ImportPreviewDialog extends JDialog {
             // 去重：平台+账号
             String k = keyOf(e);
             if (existingKeys.contains(k)) {
-                skipped++;
+                duplicateSkipped++;
                 continue;
             }
             existingKeys.add(k);
@@ -119,8 +160,8 @@ public class ImportPreviewDialog extends JDialog {
             toInsert.add(e);
         }
 
-        if (toInsert.isEmpty() && skipped == 0) {
-            JOptionPane.showMessageDialog(this, "未勾选任何记录", "提示", JOptionPane.INFORMATION_MESSAGE);
+        if (toInsert.isEmpty() && duplicateSkipped == 0) {
+            JOptionPane.showMessageDialog(this, "未勾选任何记录，未执行导入", "提示", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
@@ -128,9 +169,14 @@ public class ImportPreviewDialog extends JDialog {
             service.insertAll(toInsert);
         }
         dispose();
-        JOptionPane.showMessageDialog(this,
-                "导入完成：成功 " + toInsert.size() + " 条" + (skipped > 0 ? "，重复跳过 " + skipped + " 条" : ""),
-                "导入完成", JOptionPane.INFORMATION_MESSAGE);
+        StringBuilder msg = new StringBuilder("导入完成：成功 " + toInsert.size() + " 条");
+        if (unchecked > 0) {
+            msg.append("，未勾选跳过 ").append(unchecked).append(" 条");
+        }
+        if (duplicateSkipped > 0) {
+            msg.append("，重复跳过 ").append(duplicateSkipped).append(" 条");
+        }
+        JOptionPane.showMessageDialog(this, msg.toString(), "导入完成", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private String keyOf(Entry e) {
@@ -157,6 +203,25 @@ public class ImportPreviewDialog extends JDialog {
 
         boolean isChecked(int row) {
             return checked[row];
+        }
+
+        /** 全选/全不选 */
+        void setAllChecked(boolean b) {
+            for (int i = 0; i < checked.length; i++) {
+                checked[i] = b;
+            }
+            fireTableDataChanged();
+        }
+
+        /** 当前勾选数量 */
+        int checkedCount() {
+            int c = 0;
+            for (boolean b : checked) {
+                if (b) {
+                    c++;
+                }
+            }
+            return c;
         }
 
         @Override

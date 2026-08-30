@@ -4,6 +4,7 @@ import com.passwordmaster.model.Entry;
 import com.passwordmaster.service.PasswordService;
 import com.passwordmaster.util.ClipboardSafe;
 import com.passwordmaster.util.ImageUtil;
+import com.passwordmaster.util.PasswordStrengthUtil;
 
 import javax.crypto.SecretKey;
 import javax.swing.*;
@@ -23,6 +24,9 @@ public class EntryDetailDialog extends JDialog {
     private final SecretKey key;
     private final Entry entry;
     private final JLabel passwordLabel = new JLabel();
+    private final JLabel copyHint = new JLabel(" ");
+    private GradientButton toggleBtn;
+    private Timer hintTimer;
     private String plainPassword = null;
     private boolean showPassword = false;
 
@@ -31,12 +35,15 @@ public class EntryDetailDialog extends JDialog {
         this.entry = entry;
         this.service = service;
         this.key = key;
+        setIconImage(UiTheme.getAppIcon());
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 
-        JPanel main = new JPanel(new BorderLayout(10, 10));
+        RoundedPanel main = new RoundedPanel(16);
+        main.setLayout(new BorderLayout(10, 10));
         main.setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
 
         JPanel info = new JPanel(new GridBagLayout());
+        info.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.anchor = GridBagConstraints.WEST;
@@ -44,29 +51,42 @@ public class EntryDetailDialog extends JDialog {
         int row = 0;
         addInfoRow(info, gbc, row++, "分类：", nullToEmpty(entry.getCategory()));
         addInfoRow(info, gbc, row++, "平台：", nullToEmpty(entry.getPlatform()));
-        addInfoRow(info, gbc, row++, "账号：", nullToEmpty(entry.getAccount()));
+        // 账号行：文本 + 复制按钮
+        GradientButton copyAcctBtn = GradientButton.secondary("复制");
+        JLabel acctValue = addCopyValueRow(info, gbc, row++, "账号：", nullToEmpty(entry.getAccount()), copyAcctBtn);
+        copyAcctBtn.addActionListener(e -> copyField(acctValue.getText(), "账号"));
 
         // 密码行：默认隐藏，点按钮切换
         gbc.gridx = 0;
         gbc.gridy = row;
         info.add(new JLabel("密码："), gbc);
         JPanel pwdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        pwdPanel.setOpaque(false);
         passwordLabel.setFont(new Font("Consolas", Font.PLAIN, 13));
         passwordLabel.setText("••••••••");
-        JButton toggleBtn = new JButton("显示");
+        toggleBtn = GradientButton.secondary("显示");
         toggleBtn.addActionListener(e -> togglePassword());
         pwdPanel.add(passwordLabel);
         pwdPanel.add(toggleBtn);
         // 复制密码：经 ClipboardSafe 复制，30 秒后自动清除剪贴板
-        JButton copyBtn = new JButton("复制");
+        GradientButton copyBtn = GradientButton.accent("复制");
         copyBtn.addActionListener(e -> copyPassword());
         pwdPanel.add(copyBtn);
+        // 强度徽章：进入详情即解密计算，掩码/明文状态均显示
+        String decrypted = service.decryptPassword(entry, key);
+        if (!decrypted.isEmpty()) {
+            plainPassword = decrypted;
+            pwdPanel.add(new StrengthBadge(PasswordStrengthUtil.evaluate(decrypted)));
+        }
         gbc.gridx = 1;
         info.add(pwdPanel, gbc);
         row++;
 
         addInfoRow(info, gbc, row++, "手机号：", nullToEmpty(entry.getPhone()));
-        addInfoRow(info, gbc, row++, "邮箱：", nullToEmpty(entry.getEmail()));
+        // 邮箱行：文本 + 复制按钮
+        GradientButton copyEmailBtn = GradientButton.secondary("复制");
+        JLabel emailValue = addCopyValueRow(info, gbc, row++, "邮箱：", nullToEmpty(entry.getEmail()), copyEmailBtn);
+        copyEmailBtn.addActionListener(e -> copyField(emailValue.getText(), "邮箱"));
         addInfoRow(info, gbc, row++, "备注：", nullToEmpty(entry.getNote()));
         addInfoRow(info, gbc, row++, "同步状态：", nullToEmpty(entry.getSyncStatus()));
 
@@ -74,10 +94,12 @@ public class EntryDetailDialog extends JDialog {
 
         // 右侧：手势轨迹 + 图片
         JPanel right = new JPanel(new BorderLayout(8, 8));
+        right.setOpaque(false);
 
         // 手势轨迹图（有手势则一直显示）
         if (entry.getGestureSeq() != null && !entry.getGestureSeq().trim().isEmpty()) {
             JPanel gestureBox = new JPanel(new BorderLayout());
+            gestureBox.setOpaque(false);
             gestureBox.setBorder(BorderFactory.createTitledBorder("手势轨迹"));
             GesturePanel gp = new GesturePanel(false);
             gp.setSequence(entry.getGestureSeq());
@@ -91,6 +113,7 @@ public class EntryDetailDialog extends JDialog {
             Path imgPath = ImageUtil.resolveImagePath(entry.getImagePath());
             if (Files.exists(imgPath)) {
                 JPanel imgBox = new JPanel(new BorderLayout());
+                imgBox.setOpaque(false);
                 imgBox.setBorder(BorderFactory.createTitledBorder("截图附件"));
                 ImageIcon icon = ImageUtil.loadScaledIcon(imgPath, 150);
                 if (icon != null) {
@@ -115,10 +138,14 @@ public class EntryDetailDialog extends JDialog {
 
         add(main, BorderLayout.CENTER);
 
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton closeBtn = new JButton("关闭");
+        JPanel bottom = new JPanel(new BorderLayout(10, 0));
+        bottom.setOpaque(false);
+        copyHint.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        copyHint.setForeground(new Color(46, 139, 87));
+        bottom.add(copyHint, BorderLayout.WEST);
+        GradientButton closeBtn = GradientButton.primary("关闭");
         closeBtn.addActionListener(e -> dispose());
-        bottom.add(closeBtn);
+        bottom.add(closeBtn, BorderLayout.EAST);
         add(bottom, BorderLayout.SOUTH);
 
         pack();
@@ -139,8 +166,28 @@ public class EntryDetailDialog extends JDialog {
         panel.add(v, gbc);
     }
 
+    /** 值行（文本 + 复制按钮并排），返回值 Label 便于后续读取 */
+    private JLabel addCopyValueRow(JPanel panel, GridBagConstraints gbc, int row, String label, String value, GradientButton copyBtn) {
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        JLabel l = new JLabel(label);
+        l.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
+        l.setForeground(new Color(100, 100, 100));
+        panel.add(l, gbc);
+        JPanel cell = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        cell.setOpaque(false);
+        JLabel v = new JLabel(value);
+        v.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
+        cell.add(v);
+        cell.add(copyBtn);
+        gbc.gridx = 1;
+        panel.add(cell, gbc);
+        return v;
+    }
+
     private void togglePassword() {
         showPassword = !showPassword;
+        toggleBtn.setText(showPassword ? "隐藏" : "显示");
         if (showPassword) {
             if (plainPassword == null) {
                 plainPassword = service.decryptPassword(entry, key);
@@ -156,15 +203,70 @@ public class EntryDetailDialog extends JDialog {
         if (plainPassword == null) {
             plainPassword = service.decryptPassword(entry, key);
         }
-        if (plainPassword.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "该条目未设置密码", "提示", JOptionPane.INFORMATION_MESSAGE);
+        copyField(plainPassword, "密码");
+    }
+
+    /** 通用复制：空值提示，非空走 ClipboardSafe + 轻量状态提示 */
+    private void copyField(String value, String fieldName) {
+        String v = value == null ? "" : value.trim();
+        if (v.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "该条目未设置" + fieldName, "提示", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        ClipboardSafe.copySecret(plainPassword);
-        JOptionPane.showMessageDialog(this, "密码已复制，30 秒后自动从剪贴板清除", "复制成功", JOptionPane.INFORMATION_MESSAGE);
+        ClipboardSafe.copySecret(v);
+        showCopyHint(fieldName + "已复制，30 秒后自动清除剪贴板");
+    }
+
+    /** 底部状态标签短暂显示复制成功提示 */
+    private void showCopyHint(String msg) {
+        copyHint.setText(msg);
+        copyHint.setForeground(new Color(46, 139, 87));
+        if (hintTimer != null) {
+            hintTimer.stop();
+        }
+        hintTimer = new Timer(3000, e -> copyHint.setText(" "));
+        hintTimer.setRepeats(false);
+        hintTimer.start();
     }
 
     private static String nullToEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    /** 强度徽章：圆角背景 + 白字（弱=红 / 中=橙 / 强=绿），悬停显示评分依据 */
+    private static class StrengthBadge extends JLabel {
+        private final Color bg;
+        private final int arc = 10;
+
+        StrengthBadge(PasswordStrengthUtil.Result r) {
+            super(r.level.getText());
+            setFont(new Font("Microsoft YaHei", Font.BOLD, 12));
+            setForeground(Color.WHITE);
+            setHorizontalAlignment(SwingConstants.CENTER);
+            setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
+            switch (r.level) {
+                case WEAK:
+                    bg = new Color(0xE74C3C);
+                    break;
+                case MEDIUM:
+                    bg = new Color(0xE67E22);
+                    break;
+                default:
+                    bg = new Color(0x27AE60);
+            }
+            String detail = "<html>强度：" + r.level.getText() + "（得分 " + r.score + "/6）<br>"
+                    + String.join("<br>", r.reasons) + "</html>";
+            setToolTipText(detail);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(bg);
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
+            g2.dispose();
+            super.paintComponent(g);
+        }
     }
 }

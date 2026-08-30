@@ -18,8 +18,10 @@ public class GestureDialog extends JDialog {
     public GestureDialog(Window owner) {
         super(owner, "录入手势密码", ModalityType.APPLICATION_MODAL);
         setLayout(new BorderLayout(10, 10));
+        setIconImage(UiTheme.getAppIcon());
 
         JPanel center = new JPanel(new BorderLayout(10, 10));
+        center.setOpaque(false);
         center.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
 
         panel = new GesturePanel(true);
@@ -27,11 +29,12 @@ public class GestureDialog extends JDialog {
 
         // 手动输入区
         JPanel inputPanel = new JPanel(new BorderLayout(5, 0));
+        inputPanel.setOpaque(false);
         JLabel tip = new JLabel("或手动输入序列（1-9 数字，可逗号分隔）：");
         tip.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
         seqField = new JTextField(12);
         seqField.setFont(new Font("Consolas", Font.PLAIN, 14));
-        JButton applyBtn = new JButton("应用序列");
+        GradientButton applyBtn = GradientButton.secondary("应用序列");
         applyBtn.addActionListener(e -> applyManualSequence());
         inputPanel.add(tip, BorderLayout.WEST);
         inputPanel.add(seqField, BorderLayout.CENTER);
@@ -41,11 +44,12 @@ public class GestureDialog extends JDialog {
         add(center, BorderLayout.CENTER);
 
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton clearBtn = new JButton("清空");
+        bottom.setOpaque(false);
+        GradientButton clearBtn = GradientButton.secondary("清空");
         clearBtn.addActionListener(e -> panel.clearSequence());
-        JButton okBtn = new JButton("确定");
+        GradientButton okBtn = GradientButton.primary("确定");
         okBtn.addActionListener(e -> onOk());
-        JButton cancelBtn = new JButton("取消");
+        GradientButton cancelBtn = GradientButton.secondary("取消");
         cancelBtn.addActionListener(e -> dispose());
         bottom.add(clearBtn);
         bottom.add(okBtn);

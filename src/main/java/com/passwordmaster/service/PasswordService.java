@@ -77,6 +77,31 @@ public class PasswordService {
     }
 
     /**
+     * 当前库主密码哈希中的盐（hex 字符串，小写）。
+     * 新格式（pbkdf2$...）返回盐 hex；未初始化或旧格式返回 null（无盐，备份导出时不写 header）
+     */
+    public String getMasterSaltHex() {
+        String stored = db.getMasterHash();
+        if (stored == null || !stored.startsWith(AesUtil.PBKDF2_PREFIX)) {
+            return null;
+        }
+        String[] parts = stored.split("\\$");
+        if (parts.length != 4) {
+            return null;
+        }
+        return parts[2];
+    }
+
+    /** 当前库主密码哈希中的迭代次数；未初始化或旧格式返回默认值 600000 */
+    public int getMasterIterations() {
+        String stored = db.getMasterHash();
+        if (stored == null || !stored.startsWith(AesUtil.PBKDF2_PREFIX)) {
+            return AesUtil.PBKDF2_ITERATIONS;
+        }
+        return AesUtil.iterationsFromRecord(stored);
+    }
+
+    /**
      * 一次性迁移：旧 SHA-256 加密 -> PBKDF2 新密钥
      * 流程：用旧密钥逐条解密 -> 用新密钥重新加密写回 -> 更新存储为新格式
      * 先预检全部条目可解密，再执行写库，避免迁移中途失败导致数据不可用

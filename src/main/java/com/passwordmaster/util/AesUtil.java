@@ -227,13 +227,18 @@ public final class AesUtil {
         return sb.toString();
     }
 
-    private static byte[] fromHex(String hex) {
+    /** 十六进制字符串转字节数组（供备份文件 header 解析等外部使用） */
+    public static byte[] hexToBytes(String hex) {
         int len = hex.length();
         byte[] out = new byte[len / 2];
         for (int i = 0; i < out.length; i++) {
             out[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
         }
         return out;
+    }
+
+    private static byte[] fromHex(String hex) {
+        return hexToBytes(hex);
     }
 
     private static boolean constantTimeEquals(String a, String b) {

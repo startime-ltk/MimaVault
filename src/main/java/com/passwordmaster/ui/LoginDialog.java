@@ -12,6 +12,8 @@ import java.util.Arrays;
  * - 之后启动：验证主密码（PBKDF2），连续输错 5 次锁定 30 秒
  * - 检测到旧版 SHA-256 哈希时自动触发一次性迁移升级
  * - 密码明文以 char[] 承载，用完即清
+ * <p>
+ * 视觉：渐变背景 + 居中圆角卡片 + 艺术字标题 + 圆角输入框 + 渐变按钮
  */
 public class LoginDialog extends JDialog {
 
@@ -23,7 +25,7 @@ public class LoginDialog extends JDialog {
     private final boolean setupMode;
     private final JPasswordField pwdField = new JPasswordField(16);
     private final JPasswordField pwdField2 = new JPasswordField(16);
-    private final JButton okBtn = new JButton("确定");
+    private final GradientButton okBtn = GradientButton.primary("确定");
     private final JLabel statusLabel = new JLabel(" ");
 
     private boolean authenticated = false;
@@ -34,71 +36,99 @@ public class LoginDialog extends JDialog {
     private int lockRemaining;
 
     public LoginDialog(Window owner, PasswordService service, boolean setupMode) {
-        super(owner, setupMode ? "设置主密码" : "密码大师 - 请输入主密码", ModalityType.APPLICATION_MODAL);
+        super(owner, setupMode ? "设置主密码" : "密匣 MimaVault - 请输入主密码", ModalityType.APPLICATION_MODAL);
         this.service = service;
         this.setupMode = setupMode;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        setIconImage(UiTheme.getAppIcon());
 
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+        // 窗口背景渐变
+        GradientPanel bg = new GradientPanel(UiTheme.BG_TOP, UiTheme.BG_BOTTOM);
+        bg.setLayout(new GridBagLayout());
+        setContentPane(bg);
+
+        // 居中圆角卡片
+        RoundedPanel card = new RoundedPanel(22);
+        card.setLayout(new GridBagLayout());
+        card.setBorder(BorderFactory.createEmptyBorder(26, 34, 26, 34));
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(6, 6, 6, 6);
+        gbc.insets = new Insets(6, 8, 6, 8);
         gbc.anchor = GridBagConstraints.WEST;
 
-        JLabel title = new JLabel(setupMode ? "首次使用，请设置主密码" : "请输入主密码解锁");
-        title.setFont(new Font("Microsoft YaHei", Font.BOLD, 15));
+        // 艺术字标题
+        ArtTextLabel title = new ArtTextLabel(setupMode ? "设置主密码" : "密匣 MimaVault", 28);
+        title.setPreferredSize(new Dimension(280, 42));
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridwidth = 2;
-        panel.add(title, gbc);
+        gbc.anchor = GridBagConstraints.CENTER;
+        card.add(title, gbc);
         gbc.gridwidth = 1;
 
+        JLabel subtitle = new JLabel(setupMode ? "首次使用，请设置主密码" : "请输入主密码解锁", SwingConstants.CENTER);
+        subtitle.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
+        subtitle.setForeground(UiTheme.TEXT_SUB);
         gbc.gridx = 0;
         gbc.gridy = 1;
-        panel.add(new JLabel("主密码："), gbc);
+        gbc.gridwidth = 2;
+        card.add(subtitle, gbc);
+        gbc.gridwidth = 1;
+
+        gbc.insets = new Insets(10, 8, 4, 8);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        card.add(new JLabel("主密码："), gbc);
         gbc.gridx = 1;
-        panel.add(pwdField, gbc);
+        pwdField.setPreferredSize(new Dimension(200, 32));
+        card.add(pwdField, gbc);
 
         if (setupMode) {
             gbc.gridx = 0;
-            gbc.gridy = 2;
-            panel.add(new JLabel("确认密码："), gbc);
+            gbc.gridy = 3;
+            card.add(new JLabel("确认密码："), gbc);
             gbc.gridx = 1;
-            panel.add(pwdField2, gbc);
+            pwdField2.setPreferredSize(new Dimension(200, 32));
+            card.add(pwdField2, gbc);
         }
 
         JLabel hint = new JLabel(setupMode
                 ? "主密码用于加密全部数据，请务必牢记，丢失无法找回"
                 : "提示：主密码用于解密本地数据，忘记无法找回；连续输错 5 次将锁定 30 秒");
         hint.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
-        hint.setForeground(new Color(140, 140, 140));
-        gbc.gridx = 0;
-        gbc.gridy = setupMode ? 3 : 2;
-        gbc.gridwidth = 2;
-        panel.add(hint, gbc);
-
-        // 状态行（错误提示 / 锁定倒计时）
-        statusLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
-        statusLabel.setForeground(new Color(180, 60, 60));
+        hint.setForeground(UiTheme.TEXT_SUB);
         gbc.gridx = 0;
         gbc.gridy = setupMode ? 4 : 3;
         gbc.gridwidth = 2;
-        gbc.anchor = GridBagConstraints.CENTER;
-        panel.add(statusLabel, gbc);
+        card.add(hint, gbc);
 
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
-        okBtn.addActionListener(e -> onOk());
-        JButton cancelBtn = new JButton("退出");
-        cancelBtn.addActionListener(e -> dispose());
-        btnPanel.add(okBtn);
-        btnPanel.add(cancelBtn);
+        // 状态行（错误提示 / 锁定倒计时）
+        statusLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        statusLabel.setForeground(UiTheme.DANGER);
         gbc.gridx = 0;
         gbc.gridy = setupMode ? 5 : 4;
         gbc.gridwidth = 2;
         gbc.anchor = GridBagConstraints.CENTER;
-        panel.add(btnPanel, gbc);
+        card.add(statusLabel, gbc);
 
-        add(panel);
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 14, 0));
+        btnPanel.setOpaque(false);
+        okBtn.addActionListener(e -> onOk());
+        GradientButton cancelBtn = GradientButton.secondary("退出");
+        cancelBtn.addActionListener(e -> dispose());
+        btnPanel.add(okBtn);
+        btnPanel.add(cancelBtn);
+        gbc.gridx = 0;
+        gbc.gridy = setupMode ? 6 : 5;
+        gbc.gridwidth = 2;
+        gbc.anchor = GridBagConstraints.CENTER;
+        gbc.insets = new Insets(14, 8, 0, 8);
+        card.add(btnPanel, gbc);
+
+        // 卡片居中放入背景
+        GridBagConstraints bgGbc = new GridBagConstraints();
+        bg.add(card, bgGbc);
+
         pack();
         setLocationRelativeTo(owner);
         setResizable(false);
