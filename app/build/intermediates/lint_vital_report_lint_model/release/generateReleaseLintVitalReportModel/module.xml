@@ -1,0 +1,19 @@
+<lint-module
+    format="1"
+    dir="F:\Java\work\MimaVault-Android\app"
+    name=":app"
+    type="APP"
+    maven="MimaVault:app:unspecified"
+    agpVersion="8.13.0"
+    buildFolder="build"
+    bootClassPath="D:\Android\Sdk\platforms\android-36\android.jar;D:\Android\Sdk\build-tools\35.0.0\core-lambda-stubs.jar"
+    javaSourceLevel="17"
+    compileTarget="android-36"
+    neverShrinking="true">
+  <lintOptions
+      abortOnError="true"
+      absolutePaths="true"
+      checkReleaseBuilds="true"
+      explainIssues="true"/>
+  <variant name="release"/>
+</lint-module>

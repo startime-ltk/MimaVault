@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MimaVault" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/primary_light</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="android:statusBarColor">@color/gradient_start</item>
+        <item name="android:navigationBarColor">@color/bg_page</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- 启动页主题：渐变背景 + 居中 logo，避免白屏 -->
+    <style name="Theme.MimaVault.Splash" parent="Theme.Material3.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/bg_gradient</item>
+        <item name="android:statusBarColor">@color/gradient_start</item>
+    </style>
+
+    <style name="MimaVaultCard">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:elevation">2dp</item>
+    </style>
+</resources>
