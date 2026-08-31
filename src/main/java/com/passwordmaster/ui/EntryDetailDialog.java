@@ -34,6 +34,7 @@ public class EntryDetailDialog extends JDialog {
     private JLabel emailLabel = new JLabel();
     private JLabel noteLabel = new JLabel();
     private JLabel syncLabel = new JLabel();
+    private GradientButton platformCopyBtn;
     private GradientButton toggleBtn;
     private Timer hintTimer;
     private String plainPassword = null;
@@ -59,7 +60,13 @@ public class EntryDetailDialog extends JDialog {
 
         int row = 0;
         categoryLabel = addInfoRow(info, gbc, row++, "分类：", nullToEmpty(entry.getCategory()));
-        platformLabel = addInfoRow(info, gbc, row++, "平台：", nullToEmpty(entry.getPlatform()));
+        // 平台行（网站信息存于 platform 字段）：文本 + 复制按钮，为空时置灰不可复制
+        platformCopyBtn = GradientButton.secondary("复制");
+        platformLabel = addCopyValueRow(info, gbc, row++, "平台：", nullToEmpty(entry.getPlatform()), platformCopyBtn);
+        platformCopyBtn.addActionListener(e -> copyField(platformLabel.getText(), "平台"));
+        if (nullToEmpty(entry.getPlatform()).isEmpty()) {
+            platformCopyBtn.setEnabled(false);
+        }
         // 账号行：文本 + 复制按钮
         GradientButton copyAcctBtn = GradientButton.secondary("复制");
         accountLabel = addCopyValueRow(info, gbc, row++, "账号：", nullToEmpty(entry.getAccount()), copyAcctBtn);
@@ -148,6 +155,10 @@ public class EntryDetailDialog extends JDialog {
         setTitle("条目详情 - " + nullToEmpty(entry.getPlatform()));
         categoryLabel.setText(nullToEmpty(entry.getCategory()));
         platformLabel.setText(nullToEmpty(entry.getPlatform()));
+        // 平台（网站）复制按钮：编辑后按是否为空同步置灰/启用
+        if (platformCopyBtn != null) {
+            platformCopyBtn.setEnabled(!nullToEmpty(entry.getPlatform()).isEmpty());
+        }
         accountLabel.setText(nullToEmpty(entry.getAccount()));
         phoneLabel.setText(nullToEmpty(entry.getPhone()));
         emailLabel.setText(nullToEmpty(entry.getEmail()));

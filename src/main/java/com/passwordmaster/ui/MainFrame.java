@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -55,6 +56,18 @@ public class MainFrame extends JFrame {
     /** 顶部弱密码提醒按钮：显示统计数，点击筛选/恢复全部 */
     private final GradientButton weakBtn = GradientButton.danger("弱密码");
 
+    // ---------- 空闲自动登出（无操作安全锁定） ----------
+    /** 空闲超时：连续 3 分钟（180000ms）无鼠标/键盘操作即自动登出，需重新输入主密码 */
+    private static final long IDLE_TIMEOUT_MS = 180_000;
+    /** 空闲检查周期：每 30 秒检查一次最后活动时间（精度满足需求且开销极小） */
+    private static final int IDLE_CHECK_INTERVAL_MS = 30_000;
+    /** 最后活动时间戳（任何全局鼠标/键盘事件都会刷新） */
+    private volatile long lastActivity = System.currentTimeMillis();
+    /** 全局输入监听器（仅登录状态下注册，登出即移除） */
+    private java.awt.event.AWTEventListener idleListener;
+    /** 空闲检查定时器（仅登录状态下运行） */
+    private Timer idleTimer;
+
     public MainFrame(PasswordService service, SecretKey key) {
         super("密匣 MimaVault");
         this.service = service;
@@ -78,6 +91,72 @@ public class MainFrame extends JFrame {
         setLocationRelativeTo(null);
         setMinimumSize(new Dimension(720, 420));
         setIconImage(UiTheme.getAppIcon());
+
+        // 主界面显示即视为已登录：启动空闲自动登出监控
+        startIdleMonitor();
+    }
+
+    // ---------- 空闲自动登出：登录后启动，登出后停止 ----------
+
+    /**
+     * 注册全局输入监听 + 启动空闲检查定时器。
+     * 只监听鼠标移动/点击/滚轮与键盘事件；登录界面打开期间不注册（登录成功后由新 MainFrame 重新启动）。
+     */
+    private void startIdleMonitor() {
+        long mask = AWTEvent.MOUSE_MOTION_EVENT_MASK
+                | AWTEvent.MOUSE_EVENT_MASK
+                | AWTEvent.MOUSE_WHEEL_EVENT_MASK
+                | AWTEvent.KEY_EVENT_MASK;
+        idleListener = event -> lastActivity = System.currentTimeMillis();
+        Toolkit.getDefaultToolkit().addAWTEventListener(idleListener, mask);
+        idleTimer = new Timer(IDLE_CHECK_INTERVAL_MS, e -> checkIdle());
+        idleTimer.start();
+    }
+
+    /** 每 30 秒检查一次：超过 3 分钟无操作则自动登出（对话框打开期间计时同样生效） */
+    private void checkIdle() {
+        if (System.currentTimeMillis() - lastActivity >= IDLE_TIMEOUT_MS) {
+            autoLogout();
+        }
+    }
+
+    /** 停止监听与计时（登出/窗口销毁时调用，避免泄漏与登录界面误触发） */
+    private void stopIdleMonitor() {
+        if (idleTimer != null) {
+            idleTimer.stop();
+            idleTimer = null;
+        }
+        if (idleListener != null) {
+            Toolkit.getDefaultToolkit().removeAWTEventListener(idleListener);
+            idleListener = null;
+        }
+    }
+
+    /**
+     * 空闲超时自动登出：
+     * 1. 停止空闲监控；
+     * 2. 关闭全部窗口（含详情/编辑等模态对话框），释放内存中的 SecretKey 引用（密钥对象随 GC 回收）；
+     * 3. 回到主密码登录界面，验证通过后重新创建主界面并重新计时；取消则退出程序。
+     */
+    private void autoLogout() {
+        stopIdleMonitor();
+        for (Window w : Window.getWindows()) {
+            if (w != this && w.isShowing()) {
+                w.dispose();
+            }
+        }
+        dispose();
+        char[] masterPassword = LoginDialog.showAndVerify(null, service);
+        if (masterPassword == null) {
+            System.exit(0);
+            return;
+        }
+        try {
+            MainFrame frame = new MainFrame(service, service.deriveKey(masterPassword));
+            frame.setVisible(true);
+        } finally {
+            Arrays.fill(masterPassword, '\0'); // 明文用完即清
+        }
     }
 
     /** 顶部渐变标题栏：艺术字标题 + 副标题 */
