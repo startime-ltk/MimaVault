@@ -126,7 +126,6 @@ public class MainFrame extends JFrame {
         healthBtn.addActionListener(e -> onSecurityReport());
         row2.add(healthBtn);
         row2.add(createToolButton("新增", e -> onAdd()));
-        row2.add(createToolButton("编辑", e -> onEdit()));
         row2.add(createToolButton("删除", e -> onDelete()));
         row2.add(createToolButton("详情", e -> onDetail()));
         row2.add(createToolButton("导出", e -> onExport()));
@@ -530,20 +529,6 @@ public class MainFrame extends JFrame {
         dlg.setVisible(true);
         if (dlg.isSaved()) {
             service.addEntry(dlg.getEntry(), dlg.getPlainPassword(), key);
-            refreshTable(null, null);
-        }
-    }
-
-    private void onEdit() {
-        Entry selected = selectedEntry();
-        if (selected == null) {
-            JOptionPane.showMessageDialog(this, "请先选中一条记录", "提示", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        EntryEditDialog dlg = new EntryEditDialog(this, selected);
-        dlg.setVisible(true);
-        if (dlg.isSaved()) {
-            service.updateEntry(dlg.getEntry(), dlg.getPlainPassword(), key, dlg.isKeepOldPassword());
             refreshTable(null, null);
         }
     }

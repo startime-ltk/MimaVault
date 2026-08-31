@@ -25,6 +25,15 @@ public class EntryDetailDialog extends JDialog {
     private final Entry entry;
     private final JLabel passwordLabel = new JLabel();
     private final JLabel copyHint = new JLabel(" ");
+    private final JPanel pwdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+    private final JPanel rightPanel = new JPanel(new BorderLayout(8, 8));
+    private JLabel categoryLabel = new JLabel();
+    private JLabel platformLabel = new JLabel();
+    private JLabel accountLabel = new JLabel();
+    private JLabel phoneLabel = new JLabel();
+    private JLabel emailLabel = new JLabel();
+    private JLabel noteLabel = new JLabel();
+    private JLabel syncLabel = new JLabel();
     private GradientButton toggleBtn;
     private Timer hintTimer;
     private String plainPassword = null;
@@ -49,18 +58,17 @@ public class EntryDetailDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
 
         int row = 0;
-        addInfoRow(info, gbc, row++, "分类：", nullToEmpty(entry.getCategory()));
-        addInfoRow(info, gbc, row++, "平台：", nullToEmpty(entry.getPlatform()));
+        categoryLabel = addInfoRow(info, gbc, row++, "分类：", nullToEmpty(entry.getCategory()));
+        platformLabel = addInfoRow(info, gbc, row++, "平台：", nullToEmpty(entry.getPlatform()));
         // 账号行：文本 + 复制按钮
         GradientButton copyAcctBtn = GradientButton.secondary("复制");
-        JLabel acctValue = addCopyValueRow(info, gbc, row++, "账号：", nullToEmpty(entry.getAccount()), copyAcctBtn);
-        copyAcctBtn.addActionListener(e -> copyField(acctValue.getText(), "账号"));
+        accountLabel = addCopyValueRow(info, gbc, row++, "账号：", nullToEmpty(entry.getAccount()), copyAcctBtn);
+        copyAcctBtn.addActionListener(e -> copyField(accountLabel.getText(), "账号"));
 
         // 密码行：默认隐藏，点按钮切换
         gbc.gridx = 0;
         gbc.gridy = row;
         info.add(new JLabel("密码："), gbc);
-        JPanel pwdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         pwdPanel.setOpaque(false);
         passwordLabel.setFont(new Font("Consolas", Font.PLAIN, 13));
         passwordLabel.setText("••••••••");
@@ -77,24 +85,102 @@ public class EntryDetailDialog extends JDialog {
         if (!decrypted.isEmpty()) {
             plainPassword = decrypted;
             pwdPanel.add(new StrengthBadge(PasswordStrengthUtil.evaluate(decrypted)));
+        } else {
+            passwordLabel.setText("（未设置）");
         }
         gbc.gridx = 1;
         info.add(pwdPanel, gbc);
         row++;
 
-        addInfoRow(info, gbc, row++, "手机号：", nullToEmpty(entry.getPhone()));
+        phoneLabel = addInfoRow(info, gbc, row++, "手机号：", nullToEmpty(entry.getPhone()));
         // 邮箱行：文本 + 复制按钮
         GradientButton copyEmailBtn = GradientButton.secondary("复制");
-        JLabel emailValue = addCopyValueRow(info, gbc, row++, "邮箱：", nullToEmpty(entry.getEmail()), copyEmailBtn);
-        copyEmailBtn.addActionListener(e -> copyField(emailValue.getText(), "邮箱"));
-        addInfoRow(info, gbc, row++, "备注：", nullToEmpty(entry.getNote()));
-        addInfoRow(info, gbc, row++, "同步状态：", nullToEmpty(entry.getSyncStatus()));
+        emailLabel = addCopyValueRow(info, gbc, row++, "邮箱：", nullToEmpty(entry.getEmail()), copyEmailBtn);
+        copyEmailBtn.addActionListener(e -> copyField(emailLabel.getText(), "邮箱"));
+        noteLabel = addInfoRow(info, gbc, row++, "备注：", nullToEmpty(entry.getNote()));
+        syncLabel = addInfoRow(info, gbc, row++, "同步状态：", nullToEmpty(entry.getSyncStatus()));
 
         main.add(info, BorderLayout.WEST);
 
         // 右侧：手势轨迹 + 图片
-        JPanel right = new JPanel(new BorderLayout(8, 8));
-        right.setOpaque(false);
+        rightPanel.setOpaque(false);
+        refreshRightPanel();
+        if (rightPanel.getComponentCount() > 0) {
+            main.add(rightPanel, BorderLayout.EAST);
+        }
+
+        add(main, BorderLayout.CENTER);
+
+        JPanel bottom = new JPanel(new BorderLayout(10, 0));
+        bottom.setOpaque(false);
+        copyHint.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        copyHint.setForeground(new Color(46, 139, 87));
+        bottom.add(copyHint, BorderLayout.WEST);
+        // 底部按钮：编辑 + 关闭
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        btnPanel.setOpaque(false);
+        GradientButton editBtn = GradientButton.primary("编辑");
+        editBtn.addActionListener(e -> onEdit());
+        btnPanel.add(editBtn);
+        GradientButton closeBtn = GradientButton.primary("关闭");
+        closeBtn.addActionListener(e -> dispose());
+        btnPanel.add(closeBtn);
+        bottom.add(btnPanel, BorderLayout.EAST);
+        add(bottom, BorderLayout.SOUTH);
+
+        pack();
+        setLocationRelativeTo(owner);
+        setMinimumSize(new Dimension(480, 260));
+    }
+
+    /** 编辑当前条目：复用 EntryEditDialog 保存链路（加密/留空校验不变），保存后刷新详情显示 */
+    private void onEdit() {
+        EntryEditDialog dlg = new EntryEditDialog(this, entry);
+        dlg.setVisible(true);
+        if (dlg.isSaved()) {
+            service.updateEntry(dlg.getEntry(), dlg.getPlainPassword(), key, dlg.isKeepOldPassword());
+            refreshFromEntry();
+        }
+    }
+
+    /** 编辑保存后刷新详情界面（entry 为同一对象引用，字段已就地更新；密码重新解密） */
+    private void refreshFromEntry() {
+        setTitle("条目详情 - " + nullToEmpty(entry.getPlatform()));
+        categoryLabel.setText(nullToEmpty(entry.getCategory()));
+        platformLabel.setText(nullToEmpty(entry.getPlatform()));
+        accountLabel.setText(nullToEmpty(entry.getAccount()));
+        phoneLabel.setText(nullToEmpty(entry.getPhone()));
+        emailLabel.setText(nullToEmpty(entry.getEmail()));
+        noteLabel.setText(nullToEmpty(entry.getNote()));
+        syncLabel.setText(nullToEmpty(entry.getSyncStatus()));
+
+        // 重置密码展示：重新解密、默认掩码
+        showPassword = false;
+        toggleBtn.setText("显示");
+        plainPassword = null;
+        for (Component c : pwdPanel.getComponents()) {
+            if (c instanceof StrengthBadge) {
+                pwdPanel.remove(c);
+            }
+        }
+        String decrypted = service.decryptPassword(entry, key);
+        if (!decrypted.isEmpty()) {
+            plainPassword = decrypted;
+            pwdPanel.add(new StrengthBadge(PasswordStrengthUtil.evaluate(decrypted)));
+            passwordLabel.setText("••••••••");
+        } else {
+            passwordLabel.setText("（未设置）");
+        }
+        pwdPanel.revalidate();
+        pwdPanel.repaint();
+
+        refreshRightPanel();
+        pack();
+    }
+
+    /** 重建右侧手势轨迹 + 图片预览区（编辑后同步刷新） */
+    private void refreshRightPanel() {
+        rightPanel.removeAll();
 
         // 手势轨迹图（有手势则一直显示）
         if (entry.getGestureSeq() != null && !entry.getGestureSeq().trim().isEmpty()) {
@@ -105,7 +191,7 @@ public class EntryDetailDialog extends JDialog {
             gp.setSequence(entry.getGestureSeq());
             gp.setPreferredSize(new Dimension(180, 180));
             gestureBox.add(gp, BorderLayout.CENTER);
-            right.add(gestureBox, BorderLayout.CENTER);
+            rightPanel.add(gestureBox, BorderLayout.CENTER);
         }
 
         // 图片预览
@@ -127,33 +213,16 @@ public class EntryDetailDialog extends JDialog {
                         }
                     });
                     imgBox.add(imgLabel, BorderLayout.CENTER);
-                    right.add(imgBox, BorderLayout.SOUTH);
+                    rightPanel.add(imgBox, BorderLayout.SOUTH);
                 }
             }
         }
 
-        if (right.getComponentCount() > 0) {
-            main.add(right, BorderLayout.EAST);
-        }
-
-        add(main, BorderLayout.CENTER);
-
-        JPanel bottom = new JPanel(new BorderLayout(10, 0));
-        bottom.setOpaque(false);
-        copyHint.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
-        copyHint.setForeground(new Color(46, 139, 87));
-        bottom.add(copyHint, BorderLayout.WEST);
-        GradientButton closeBtn = GradientButton.primary("关闭");
-        closeBtn.addActionListener(e -> dispose());
-        bottom.add(closeBtn, BorderLayout.EAST);
-        add(bottom, BorderLayout.SOUTH);
-
-        pack();
-        setLocationRelativeTo(owner);
-        setMinimumSize(new Dimension(480, 260));
+        rightPanel.revalidate();
+        rightPanel.repaint();
     }
 
-    private void addInfoRow(JPanel panel, GridBagConstraints gbc, int row, String label, String value) {
+    private JLabel addInfoRow(JPanel panel, GridBagConstraints gbc, int row, String label, String value) {
         gbc.gridx = 0;
         gbc.gridy = row;
         JLabel l = new JLabel(label);
@@ -164,6 +233,7 @@ public class EntryDetailDialog extends JDialog {
         JLabel v = new JLabel(value);
         v.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
         panel.add(v, gbc);
+        return v;
     }
 
     /** 值行（文本 + 复制按钮并排），返回值 Label 便于后续读取 */
