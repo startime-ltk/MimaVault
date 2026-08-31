@@ -4,8 +4,10 @@ import com.passwordmaster.config.AppConfig;
 import com.passwordmaster.model.Entry;
 import com.passwordmaster.service.PasswordHealthChecker;
 import com.passwordmaster.service.PasswordService;
+import com.passwordmaster.util.AesUtil;
 import com.passwordmaster.util.BackupUtil;
 import com.passwordmaster.util.ClipboardSafe;
+import com.passwordmaster.util.CsvUtil;
 import com.passwordmaster.util.DragDropUtil;
 import com.passwordmaster.util.ImageUtil;
 import com.passwordmaster.util.OcrUtil;
@@ -128,7 +130,9 @@ public class MainFrame extends JFrame {
         row2.add(createToolButton("删除", e -> onDelete()));
         row2.add(createToolButton("详情", e -> onDetail()));
         row2.add(createToolButton("导出", e -> onExport()));
+        row2.add(createToolButton("导出CSV", e -> onExportCsv()));
         row2.add(createToolButton("导入", e -> onImport()));
+        row2.add(createToolButton("导入CSV", e -> onImportCsv()));
         row2.add(createToolButton("智能导入", e -> onSmartImport()));
         // 弱密码提醒：显示全库弱密码条数，点击筛选弱密码 / 再次点击恢复全部
         weakBtn.addActionListener(e -> toggleWeakFilter());
@@ -674,6 +678,135 @@ public class MainFrame extends JFrame {
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "导入失败：主密码错误或文件损坏\n" + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    /** 导出为 CSV（明文文件，导出前红色风险警告） */
+    private void onExportCsv() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("导出为 CSV");
+        chooser.setSelectedFile(new java.io.File("MimaVault_export_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date()) + ".csv"));
+        chooser.setFileFilter(new FileNameExtensionFilter("CSV 文件 (*.csv)", "csv"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path target = chooser.getSelectedFile().toPath();
+        if (!target.toString().toLowerCase().endsWith(".csv")) {
+            target = Paths.get(target.toString() + ".csv");
+        }
+        // 明文风险红色警告
+        JLabel warn = new JLabel("<html><font color='#C62828'><b>警告</b></font>：CSV 为<font color='#C62828'>明文文件</font>，包含全部密码明文。<br>请妥善保管，切勿公开传输或分享。</html>");
+        warn.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
+        int r = JOptionPane.showConfirmDialog(this, warn, "导出明文 CSV", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (r != JOptionPane.OK_OPTION) {
+            return;
+        }
+        try {
+            List<Entry> all = service.listEntries();
+            if (all.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "当前没有可导出的数据", "提示", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            CsvUtil.export(all, key, target);
+            JOptionPane.showMessageDialog(this, "导出成功，共 " + all.size() + " 条记录\n" + target, "导出完成", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "导出失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /** 从 CSV 导入（通用格式，明文密码加密后入库，复用现有加密链路） */
+    private void onImportCsv() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("从 CSV 导入");
+        chooser.setFileFilter(new FileNameExtensionFilter("CSV 文件 (*.csv)", "csv"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        Path source = chooser.getSelectedFile().toPath();
+        try {
+            List<CsvUtil.CsvRow> rows = CsvUtil.parse(source);
+            if (rows.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "CSV 中没有可导入的数据", "提示", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            // 明文密码加密后转为条目，与既有 Entry 加密链路一致，不落明文
+            List<Entry> entries = new ArrayList<>();
+            for (CsvUtil.CsvRow row : rows) {
+                Entry e = new Entry();
+                e.setCategory(Entry.CATEGORY_WEBSITE);
+                e.setPlatform(row.name);
+                e.setAccount(row.username);
+                e.setNote(row.notes);
+                if (row.password != null && !row.password.isEmpty()) {
+                    e.setPasswordEnc(AesUtil.encrypt(row.password, key));
+                }
+                entries.add(e);
+            }
+            doImportCsv(entries);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "CSV 解析失败：" + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /** CSV 导入确认与入库：复用现有覆盖/追加确认流程（覆盖模式沿用自动备份保护） */
+    private void doImportCsv(List<Entry> entries) {
+        boolean hasExisting = !service.listEntries().isEmpty();
+        String mode = "追加";
+        if (hasExisting) {
+            Object[] options = {"覆盖", "追加"};
+            int choice = JOptionPane.showOptionDialog(this,
+                    "当前已有数据，请选择导入方式：\n覆盖：清空现有数据后导入\n追加：直接追加全部条目（同名也追加，默认策略）",
+                    "导入方式", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]);
+            if (choice == JOptionPane.CLOSED_OPTION) {
+                return;
+            }
+            mode = (choice == 0) ? "覆盖" : "追加";
+        }
+
+        // 覆盖导入保护：清空旧数据前自动备份（与 .pmaster 导入一致）
+        Path autoBackup = backupBeforeOverwrite();
+        if (autoBackup == IMPORT_CANCELLED) {
+            return;
+        }
+
+        // 统计与现有条目同名（平台+账号）的数量，仅用于提示
+        int sameName = 0;
+        Set<String> existingKeys = new HashSet<>();
+        for (Entry e : service.listEntries()) {
+            existingKeys.add(keyOf(e));
+        }
+        for (Entry e : entries) {
+            if (existingKeys.contains(keyOf(e))) {
+                sameName++;
+            } else {
+                existingKeys.add(keyOf(e));
+            }
+        }
+
+        try {
+            if ("覆盖".equals(mode)) {
+                service.clearAll();
+            }
+            service.insertAll(entries);
+        } catch (Exception ex) {
+            refreshTable(null, null);
+            if (autoBackup != null) {
+                JOptionPane.showMessageDialog(this,
+                        "导入失败，已自动备份原数据到：\n" + autoBackup
+                                + "\n\n请先恢复备份，或排查导入文件后重试。",
+                        "导入失败", JOptionPane.ERROR_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                        "导入失败：" + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                        "错误", JOptionPane.ERROR_MESSAGE);
+            }
+            return;
+        }
+
+        refreshTable(null, null);
+        JOptionPane.showMessageDialog(this,
+                "导入完成：成功 " + entries.size() + " 条"
+                        + (sameName > 0 ? "（其中与现有条目同名 " + sameName + " 条，已按追加策略导入）" : ""),
+                "导入完成", JOptionPane.INFORMATION_MESSAGE);
     }
 
     /** 智能导入：来源选择 -> 解析 -> 预览确认 -> 入库 */
