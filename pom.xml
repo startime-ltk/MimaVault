@@ -43,6 +43,12 @@
             <artifactId>tess4j</artifactId>
             <version>5.11.0</version>
         </dependency>
+        <!-- jnativehook：全局快捷键监听 -->
+        <dependency>
+            <groupId>com.github.kwhat</groupId>
+            <artifactId>jnativehook</artifactId>
+            <version>2.2.2</version>
+        </dependency>
     </dependencies>
 
     <build>

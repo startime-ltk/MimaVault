@@ -14,6 +14,9 @@ import com.passwordmaster.util.OcrUtil;
 import com.passwordmaster.util.PasswordGenerator;
 import com.passwordmaster.util.PasswordStrengthUtil;
 import com.passwordmaster.util.TextBatchParser;
+import com.github.kwhat.jnativehook.GlobalScreen;
+import com.github.kwhat.jnativehook.keyboard.NativeKeyEvent;
+import com.github.kwhat.jnativehook.keyboard.NativeKeyListener;
 
 import javax.crypto.SecretKey;
 import javax.swing.*;
@@ -52,6 +55,18 @@ public class MainFrame extends JFrame {
 
     private List<Entry> currentList;
 
+    // ---------- 系统托盘 ----------
+    private java.awt.SystemTray systemTray;
+    private TrayIcon trayIcon;
+
+    // ---------- 全局快捷键 ----------
+    /** 显示/隐藏主界面：Ctrl+Shift+M */
+    private static final int HOTKEY_TOGGLE = NativeKeyEvent.VC_M;
+    /** 锁定（回登录界面）：Ctrl+Shift+L */
+    private static final int HOTKEY_LOCK = NativeKeyEvent.VC_L;
+    private NativeKeyListener hotkeyListener;
+    private boolean hotkeyOk = false;
+
     // ---------- 空闲自动登出（无操作安全锁定） ----------
     /** 空闲超时：连续 3 分钟（180000ms）无鼠标/键盘操作即自动登出，需重新输入主密码 */
     private static final long IDLE_TIMEOUT_MS = 180_000;
@@ -69,8 +84,14 @@ public class MainFrame extends JFrame {
         this.service = service;
         this.key = key;
 
-        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         setLayout(new BorderLayout());
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                handleCloseRequest();
+            }
+        });
 
         buildHeader();
         centerBox.setOpaque(false);
@@ -93,6 +114,186 @@ public class MainFrame extends JFrame {
 
         // 登录成功后自动备份全部数据到 data/backup/
         startAutoBackup();
+
+        // 系统托盘与全局快捷键（注册失败不阻塞主流程）
+        installSystemTray();
+        installGlobalHotkey();
+    }
+
+    // ---------- 系统托盘 ----------
+
+    /** 将程序最小化到系统托盘：关闭窗口不再退出，双击/托盘菜单可恢复 */
+    private void installSystemTray() {
+        if (!java.awt.SystemTray.isSupported()) {
+            return;
+        }
+        try {
+            systemTray = java.awt.SystemTray.getSystemTray();
+            java.awt.PopupMenu menu = new java.awt.PopupMenu();
+            // Windows 原生托盘菜单对中文渲染为空白方框（AWT 已知 bug），
+            // 中文字体设置无效，菜单文字使用英文保证可读
+            java.awt.MenuItem openItem = new java.awt.MenuItem("Open");
+            openItem.addActionListener(e -> showMainWindow());
+            java.awt.MenuItem lockItem = new java.awt.MenuItem("Lock");
+            lockItem.addActionListener(e -> autoLogout());
+            java.awt.MenuItem closeBehaviorItem = new java.awt.MenuItem("Close Action...");
+            closeBehaviorItem.addActionListener(e -> showCloseChoiceDialog());
+            java.awt.MenuItem exitItem = new java.awt.MenuItem("Exit");
+            exitItem.addActionListener(e -> quitApp());
+            menu.add(openItem);
+            menu.add(lockItem);
+            menu.add(closeBehaviorItem);
+            menu.addSeparator();
+            menu.add(exitItem);
+
+            trayIcon = new TrayIcon(UiTheme.getAppIcon(), "密匣 MimaVault", menu);
+            trayIcon.setImageAutoSize(true);
+            trayIcon.addActionListener(e -> showMainWindow());
+            systemTray.add(trayIcon);
+        } catch (Exception ex) {
+            trayIcon = null;
+            systemTray = null;
+        }
+    }
+
+    /**
+     * 点击关闭按钮：按用户记忆的选择执行（关闭程序 / 最小化到托盘）。
+     * 未设置过则弹出选择对话框，选择后永久生效。
+     */
+    private void handleCloseRequest() {
+        AppConfig cfg = AppConfig.load();
+        if ("exit".equals(cfg.closeAction)) {
+            quitApp();
+        } else if ("minimize".equals(cfg.closeAction)) {
+            hideToTray();
+        } else {
+            showCloseChoiceDialog();
+        }
+    }
+
+    /** 弹出关闭行为选择：关闭程序 / 最小化到托盘 / 取消，选择后写入配置永久生效 */
+    private void showCloseChoiceDialog() {
+        Object[] options = {"关闭程序", "最小化到托盘", "取消"};
+        int c = JOptionPane.showOptionDialog(this,
+                "点击关闭按钮时希望执行什么操作？\n选择后将永久生效，可随时在托盘菜单「关闭窗口行为」中修改。",
+                "关闭窗口行为", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]);
+        if (c == 0) {
+            AppConfig cfg = AppConfig.load();
+            cfg.closeAction = "exit";
+            cfg.save();
+            quitApp();
+        } else if (c == 1) {
+            AppConfig cfg = AppConfig.load();
+            cfg.closeAction = "minimize";
+            cfg.save();
+            hideToTray();
+        }
+    }
+
+    /** 关闭窗口：最小化到托盘（静默，不弹系统通知） */
+    private void hideToTray() {
+        if (trayIcon == null) {
+            quitApp();
+            return;
+        }
+        setVisible(false);
+    }
+
+    /** 从托盘恢复主界面 */
+    private void showMainWindow() {
+        setVisible(true);
+        setState(Frame.NORMAL);
+        toFront();
+        requestFocus();
+    }
+
+    /** 真正退出程序：先卸载托盘与热键，再结束进程 */
+    private void quitApp() {
+        uninstallSystemTray();
+        uninstallGlobalHotkey();
+        stopIdleMonitor();
+        dispose();
+        System.exit(0);
+    }
+
+    /** 卸载托盘图标（登出/退出时调用，避免重复注册） */
+    private void uninstallSystemTray() {
+        if (trayIcon != null && systemTray != null) {
+            try {
+                systemTray.remove(trayIcon);
+            } catch (Exception ignored) {
+            }
+        }
+        trayIcon = null;
+        systemTray = null;
+    }
+
+    // ---------- 全局快捷键 ----------
+
+    /** 注册全局快捷键：Ctrl+Shift+M 显示/隐藏主界面，Ctrl+Shift+L 锁定 */
+    private void installGlobalHotkey() {
+        // 静音 jnativehook 自带日志，避免控制台刷屏
+        try {
+            java.util.logging.Logger logger = java.util.logging.Logger.getLogger(GlobalScreen.class.getPackage().getName());
+            logger.setLevel(java.util.logging.Level.OFF);
+            logger.setUseParentHandlers(false);
+        } catch (Exception ignored) {
+        }
+        try {
+            GlobalScreen.registerNativeHook();
+        } catch (Exception ex) {
+            hotkeyOk = false;
+            return;
+        }
+        hotkeyListener = new NativeKeyListener() {
+            @Override
+            public void nativeKeyPressed(NativeKeyEvent e) {
+                boolean ctrl = (e.getModifiers() & NativeKeyEvent.CTRL_MASK) != 0;
+                boolean shift = (e.getModifiers() & NativeKeyEvent.SHIFT_MASK) != 0;
+                if (ctrl && shift && e.getKeyCode() == HOTKEY_TOGGLE) {
+                    SwingUtilities.invokeLater(() -> toggleMainWindow());
+                } else if (ctrl && shift && e.getKeyCode() == HOTKEY_LOCK) {
+                    SwingUtilities.invokeLater(() -> autoLogout());
+                }
+            }
+
+            @Override
+            public void nativeKeyReleased(NativeKeyEvent e) {
+            }
+
+            @Override
+            public void nativeKeyTyped(NativeKeyEvent e) {
+            }
+        };
+        GlobalScreen.addNativeKeyListener(hotkeyListener);
+        hotkeyOk = true;
+    }
+
+    /** 卸载全局快捷键监听（登出/退出时调用，避免重复注册触发两次） */
+    private void uninstallGlobalHotkey() {
+        if (hotkeyListener != null) {
+            try {
+                GlobalScreen.removeNativeKeyListener(hotkeyListener);
+            } catch (Exception ignored) {
+            }
+            hotkeyListener = null;
+        }
+        if (hotkeyOk) {
+            try {
+                GlobalScreen.unregisterNativeHook();
+            } catch (Exception ignored) {
+            }
+            hotkeyOk = false;
+        }
+    }
+
+    /** Ctrl+Shift+M：主界面可见且激活则隐藏到托盘，否则恢复 */
+    private void toggleMainWindow() {
+        if (isVisible() && isActive()) {
+            setVisible(false);
+        } else {
+            showMainWindow();
+        }
     }
 
     // ---------- 空闲自动登出：登录后启动，登出后停止 ----------
@@ -139,6 +340,8 @@ public class MainFrame extends JFrame {
      */
     private void autoLogout() {
         stopIdleMonitor();
+        uninstallSystemTray();
+        uninstallGlobalHotkey();
         for (Window w : Window.getWindows()) {
             if (w != this && w.isShowing()) {
                 w.dispose();
@@ -227,7 +430,7 @@ public class MainFrame extends JFrame {
         row2.add(createToolButton("新增", e -> onAdd()));
         row2.add(createToolButton("智能导入", e -> onSmartImport()));
         row2.add(createToolButton("删除", e -> onDelete()));
-        row2.add(createToolButton("批量删除", e -> onBatchDelete()));
+        row2.add(createToolButton("批量操作", e -> onBatchOps()));
         row2.add(createToolButton("回收站", e -> onTrash()));
         row2.add(createToolButton("导出", e -> onExport()));
         row2.add(createToolButton("导入", e -> onImport()));
@@ -640,18 +843,42 @@ public class MainFrame extends JFrame {
         refreshTable(null, null);
     }
 
-    /** 批量删除：将勾选的条目移入回收站 */
-    private void onBatchDelete() {
+    /** 批量操作：将勾选的条目移入回收站，或按格式批量导出 */
+    private void onBatchOps() {
+        List<Entry> selected = collectChecked();
+        if (selected.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "请先在表格左侧勾选要操作的记录", "提示", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        Object[] options = {"移入回收站", "导出备份 (.pmaster)", "导出 CSV"};
+        int c = JOptionPane.showOptionDialog(this,
+                "已勾选 " + selected.size() + " 条记录，请选择批量操作：",
+                "批量操作", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        if (c == JOptionPane.CLOSED_OPTION) {
+            return;
+        }
+        if (c == 0) {
+            doBatchTrash(selected);
+        } else if (c == 1) {
+            exportPmaster(selected);
+        } else {
+            exportCsv(selected);
+        }
+    }
+
+    /** 收集表格第 0 列（选择列）勾选的条目 */
+    private List<Entry> collectChecked() {
         List<Entry> selected = new java.util.ArrayList<>();
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             if (Boolean.TRUE.equals(tableModel.getValueAt(i, 0))) {
                 selected.add(currentList.get(i));
             }
         }
-        if (selected.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请先在表格左侧勾选要删除的记录", "提示", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
+        return selected;
+    }
+
+    /** 批量移入回收站 */
+    private void doBatchTrash(List<Entry> selected) {
         int r = JOptionPane.showConfirmDialog(this,
                 "确定将选中的 " + selected.size() + " 条记录移入回收站？\n可在回收站中恢复或彻底删除。",
                 "批量移入回收站", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
@@ -722,9 +949,27 @@ public class MainFrame extends JFrame {
     }
 
     /**
-     * 导出：先选择格式（密匣备份 .pmaster / 明文 CSV），再分发到对应导出逻辑
+     * 导出：先选择导出范围（有勾选时可只导勾选项），再选择格式（密匣备份 .pmaster / 明文 CSV）
      */
     private void onExport() {
+        List<Entry> checked = collectChecked();
+        List<Entry> scope;
+        if (checked.isEmpty()) {
+            scope = service.listEntries();
+        } else {
+            Object[] scopeOptions = {"全部记录", "仅导出勾选的 " + checked.size() + " 条"};
+            int sc = JOptionPane.showOptionDialog(this,
+                    "表格中已勾选 " + checked.size() + " 条记录，请选择导出范围：",
+                    "导出范围", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE, null, scopeOptions, scopeOptions[1]);
+            if (sc == JOptionPane.CLOSED_OPTION) {
+                return;
+            }
+            scope = (sc == 0) ? service.listEntries() : checked;
+        }
+        if (scope.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "当前没有可导出的数据", "提示", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
         Object[] options = {"密匣备份 (.pmaster)", "CSV 文件 (.csv)"};
         int choice = JOptionPane.showOptionDialog(this,
                 "请选择导出格式：\n密匣备份：加密格式，导入时需主密码还原\nCSV：通用明文格式，兼容其它密码管理器",
@@ -733,14 +978,14 @@ public class MainFrame extends JFrame {
             return;
         }
         if (choice == 0) {
-            exportPmaster();
+            exportPmaster(scope);
         } else {
-            exportCsv();
+            exportCsv(scope);
         }
     }
 
-    /** 导出为密匣备份（.pmaster，加密格式） */
-    private void exportPmaster() {
+    /** 导出为密匣备份（.pmaster，加密格式），导出指定条目集合 */
+    private void exportPmaster(List<Entry> entries) {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("导出备份");
         chooser.setSelectedFile(new java.io.File("MimaVault_backup_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date()) + ".pmaster"));
@@ -753,13 +998,12 @@ public class MainFrame extends JFrame {
             target = Paths.get(target.toString() + ".pmaster");
         }
         try {
-            List<Entry> all = service.listEntries();
-            if (all.isEmpty()) {
+            if (entries.isEmpty()) {
                 JOptionPane.showMessageDialog(this, "当前没有可导出的数据", "提示", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
-            BackupUtil.export(all, key, service.getMasterSaltHex(), service.getMasterIterations(), target);
-            JOptionPane.showMessageDialog(this, "导出成功，共 " + all.size() + " 条记录\n" + target, "导出完成", JOptionPane.INFORMATION_MESSAGE);
+            BackupUtil.export(entries, key, service.getMasterSaltHex(), service.getMasterIterations(), target);
+            JOptionPane.showMessageDialog(this, "导出成功，共 " + entries.size() + " 条记录\n" + target, "导出完成", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "导出失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
@@ -814,8 +1058,8 @@ public class MainFrame extends JFrame {
         }
     }
 
-    /** 导出为 CSV（明文文件，导出前红色风险警告） */
-    private void exportCsv() {
+    /** 导出为 CSV（明文文件，导出前红色风险警告），导出指定条目集合 */
+    private void exportCsv(List<Entry> entries) {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("导出为 CSV");
         chooser.setSelectedFile(new java.io.File("MimaVault_export_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date()) + ".csv"));
@@ -835,13 +1079,12 @@ public class MainFrame extends JFrame {
             return;
         }
         try {
-            List<Entry> all = service.listEntries();
-            if (all.isEmpty()) {
+            if (entries.isEmpty()) {
                 JOptionPane.showMessageDialog(this, "当前没有可导出的数据", "提示", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
-            CsvUtil.export(all, key, target);
-            JOptionPane.showMessageDialog(this, "导出成功，共 " + all.size() + " 条记录\n" + target, "导出完成", JOptionPane.INFORMATION_MESSAGE);
+            CsvUtil.export(entries, key, target);
+            JOptionPane.showMessageDialog(this, "导出成功，共 " + entries.size() + " 条记录\n" + target, "导出完成", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "导出失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }

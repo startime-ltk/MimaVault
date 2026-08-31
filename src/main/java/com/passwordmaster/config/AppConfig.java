@@ -36,6 +36,9 @@ public class AppConfig {
     /** 智谱 AI API Key（AI 辅助识别用；空表示未配置，AI 识别默认关闭） */
     public String zhipuApiKey = "";
 
+    /** 点击关闭按钮时的行为：""=未设置（每次询问）、"exit"=关闭程序、"minimize"=最小化到托盘 */
+    public String closeAction = "";
+
     public static AppConfig load() {
         AppConfig cfg = new AppConfig();
         try {
