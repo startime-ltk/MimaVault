@@ -83,9 +83,9 @@ public class MainFrame extends JFrame {
 
         refreshTable(null, null);
 
-        setSize(860, 520);
+        setSize(740, 520);
         setLocationRelativeTo(null);
-        setMinimumSize(new Dimension(720, 420));
+        setMinimumSize(new Dimension(660, 420));
         setIconImage(UiTheme.getAppIcon());
 
         // 主界面显示即视为已登录：启动空闲自动登出监控
@@ -168,7 +168,7 @@ public class MainFrame extends JFrame {
         title.setGradient(Color.WHITE, new Color(0xE8E4FF));
         title.setStroke(new Color(0x4A3A7A), 1.2f);
         title.setShadow(new Color(0, 0, 0, 70), 2);
-        title.setPreferredSize(new Dimension(420, 38));
+        title.setPreferredSize(new Dimension(280, 38));
 
         // 安全报告入口：位于 logo 右侧
         GradientButton healthBtn = new GradientButton("安全报告",
@@ -199,22 +199,13 @@ public class MainFrame extends JFrame {
         row1.setOpaque(false);
         row1.add(new JLabel("搜索："));
         searchField.putClientProperty("JTextField.placeholderText", "平台 / 账号 / 手机 / 邮箱");
-        searchField.setPreferredSize(new Dimension(240, 30));
+        searchField.setPreferredSize(new Dimension(200, 30));
         row1.add(searchField);
         row1.add(new JLabel("类型："));
         categoryFilter.setPreferredSize(new Dimension(80, 30));
         row1.add(categoryFilter);
-        top.add(row1);
 
-        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        row2.setOpaque(false);
-        row2.add(createToolButton("新增", e -> onAdd()));
-        row2.add(createToolButton("智能导入", e -> onSmartImport()));
-        row2.add(createToolButton("删除", e -> onDelete()));
-        row2.add(createToolButton("回收站", e -> onTrash()));
-        row2.add(createToolButton("导出", e -> onExport()));
-        row2.add(createToolButton("导入", e -> onImport()));
-        // 生成器入口：生成随机密码 / 邮箱地址，结果复制到剪贴板并弹提示
+        // 生成器入口：生成随机密码 / 邮箱地址，结果复制到剪贴板并弹提示（放在第一行右侧）
         GradientButton genPwdBtn = createToolButton("生成密码", e -> {
             String pwd = PasswordGenerator.generatePassword();
             ClipboardSafe.copySecret(pwd);
@@ -227,8 +218,19 @@ public class MainFrame extends JFrame {
             Toast.show(MainFrame.this, "已生成邮箱并复制到剪贴板：" + email);
         });
         genEmailBtn.setToolTipText("生成一个形似真实邮箱的字符串并复制到剪贴板，用于填写表单");
-        row2.add(genPwdBtn);
-        row2.add(genEmailBtn);
+        row1.add(genPwdBtn);
+        row1.add(genEmailBtn);
+        top.add(row1);
+
+        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        row2.setOpaque(false);
+        row2.add(createToolButton("新增", e -> onAdd()));
+        row2.add(createToolButton("智能导入", e -> onSmartImport()));
+        row2.add(createToolButton("删除", e -> onDelete()));
+        row2.add(createToolButton("批量删除", e -> onBatchDelete()));
+        row2.add(createToolButton("回收站", e -> onTrash()));
+        row2.add(createToolButton("导出", e -> onExport()));
+        row2.add(createToolButton("导入", e -> onImport()));
         // 修改主密码入口：验证当前密码 → 全库重加密 → 更新内存密钥
         row2.add(createToolButton("修改主密码", e -> onChangeMaster()));
         top.add(row2);
@@ -250,10 +252,15 @@ public class MainFrame extends JFrame {
     }
 
     private void buildTable() {
-        tableModel = new DefaultTableModel(new String[]{"类型", "平台", "账号", "手机", "邮箱", "备注", "强度"}, 0) {
+        tableModel = new DefaultTableModel(new String[]{"选择", "类型", "平台", "账号", "手机", "邮箱", "备注", "强度"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return false;
+                return column == 0; // 仅"选择"列可编辑（复选框勾选）
+            }
+
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return columnIndex == 0 ? Boolean.class : Object.class; // 首列渲染为复选框
             }
         };
         table = new JTable(tableModel);
@@ -268,16 +275,17 @@ public class MainFrame extends JFrame {
         table.setSelectionForeground(Color.WHITE);
         table.setFillsViewportHeight(true);
         GradientTableHeader.apply(table);
-        table.getColumnModel().getColumn(0).setPreferredWidth(50);
-        table.getColumnModel().getColumn(1).setPreferredWidth(150);
+        table.getColumnModel().getColumn(0).setPreferredWidth(44);
+        table.getColumnModel().getColumn(1).setPreferredWidth(50);
         table.getColumnModel().getColumn(2).setPreferredWidth(130);
-        table.getColumnModel().getColumn(3).setPreferredWidth(110);
-        table.getColumnModel().getColumn(4).setPreferredWidth(160);
-        table.getColumnModel().getColumn(5).setPreferredWidth(200);
-        table.getColumnModel().getColumn(6).setPreferredWidth(60);
+        table.getColumnModel().getColumn(3).setPreferredWidth(120);
+        table.getColumnModel().getColumn(4).setPreferredWidth(100);
+        table.getColumnModel().getColumn(5).setPreferredWidth(130);
+        table.getColumnModel().getColumn(6).setPreferredWidth(150);
+        table.getColumnModel().getColumn(7).setPreferredWidth(60);
 
         // 强度列着色：弱=红 / 中=橙 / 强=绿 / 未设置=灰
-        table.getColumnModel().getColumn(6).setCellRenderer(new DefaultTableCellRenderer() {
+        table.getColumnModel().getColumn(7).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable t, Object value, boolean isSelected,
                                                            boolean hasFocus, int row, int column) {
@@ -502,6 +510,7 @@ public class MainFrame extends JFrame {
         tableModel.setRowCount(0);
         for (Entry e : currentList) {
             tableModel.addRow(new Object[]{
+                    Boolean.FALSE,
                     nullToEmpty(e.getCategory()),
                     nullToEmpty(e.getPlatform()),
                     nullToEmpty(e.getAccount()),
@@ -629,6 +638,30 @@ public class MainFrame extends JFrame {
         TrashDialog dlg = new TrashDialog(this, service);
         dlg.setVisible(true);
         refreshTable(null, null);
+    }
+
+    /** 批量删除：将勾选的条目移入回收站 */
+    private void onBatchDelete() {
+        List<Entry> selected = new java.util.ArrayList<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            if (Boolean.TRUE.equals(tableModel.getValueAt(i, 0))) {
+                selected.add(currentList.get(i));
+            }
+        }
+        if (selected.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "请先在表格左侧勾选要删除的记录", "提示", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int r = JOptionPane.showConfirmDialog(this,
+                "确定将选中的 " + selected.size() + " 条记录移入回收站？\n可在回收站中恢复或彻底删除。",
+                "批量移入回收站", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (r == JOptionPane.YES_OPTION) {
+            for (Entry e : selected) {
+                service.trash(e.getId());
+            }
+            refreshTable(null, null);
+            statusLabel.setText("已移入回收站 " + selected.size() + " 条");
+        }
     }
 
     private void onDetail() {
