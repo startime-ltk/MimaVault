@@ -26,6 +26,7 @@ public class Entry {
     private String syncStatus;    // 同步状态（默认 local，为后期手机互联预留）
     private Date createdAt;       // 创建时间
     private Date updatedAt;       // 更新时间
+    private Date deletedAt;       // 回收站删除时间（null 表示未删除）
 
     public Entry() {
         this.category = CATEGORY_WEBSITE;
@@ -134,5 +135,13 @@ public class Entry {
 
     public void setUpdatedAt(Date updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Date getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(Date deletedAt) {
+        this.deletedAt = deletedAt;
     }
 }

@@ -142,7 +142,7 @@ public class EntryDetailDialog extends JDialog {
 
     /** 编辑当前条目：复用 EntryEditDialog 保存链路（加密/留空校验不变），保存后刷新详情显示 */
     private void onEdit() {
-        EntryEditDialog dlg = new EntryEditDialog(this, entry);
+        EntryEditDialog dlg = new EntryEditDialog(this, entry, key);
         dlg.setVisible(true);
         if (dlg.isSaved()) {
             service.updateEntry(dlg.getEntry(), dlg.getPlainPassword(), key, dlg.isKeepOldPassword());

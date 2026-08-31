@@ -21,6 +21,16 @@ public final class ClipboardSafe {
     }
 
     /**
+     * 复制普通文本到系统剪贴板（不自动清理）。
+     * 用于非机密内容（如生成的邮箱地址）的复制。
+     */
+    public static void copy(String text) {
+        String content = text == null ? "" : text;
+        Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        clipboard.setContents(new StringSelection(content), null);
+    }
+
+    /**
      * 复制敏感文本到系统剪贴板，30 秒后自动清除。
      * 清除条件：剪贴板当前内容仍等于本次复制的文本（即用户未复制新内容）。
      */

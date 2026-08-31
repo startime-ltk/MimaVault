@@ -136,17 +136,9 @@ public final class TextBatchParser {
         return subs;
     }
 
-    /** 判断 text 中 key 在 idx 处是否为"真标签"：前缀非字母数字，且后跟冒号/等号/空白/结尾 */
+    /** 判断 text 中 key 在 idx 处是否为"真标签"：前缀非拉丁字母，且后跟分隔符/紧贴值/结尾（与 TextParser 容错一致） */
     static boolean isRealLabelAt(String text, String key, int idx) {
-        boolean beforeOk = idx == 0 || !Character.isLetterOrDigit(text.charAt(idx - 1));
-        if (!beforeOk) {
-            return false;
-        }
-        int end = idx + key.length();
-        return end >= text.length()
-                || text.charAt(end) == ':' || text.charAt(end) == '：'
-                || text.charAt(end) == '=' || text.charAt(end) == '＝'
-                || Character.isWhitespace(text.charAt(end));
+        return TextParser.isTightLabelAt(text, key, idx);
     }
 
     /** 解析单条记录；解析不出任何字段返回 null */

@@ -33,10 +33,25 @@ public class AppConfig {
     /** 数据库文件路径 data/MimaVault.db（旧库 PasswordMaster.db 由 DatabaseManager 自动迁移） */
     public static final Path DB_FILE = DATA_DIR.resolve("MimaVault.db");
 
+    /** 智谱 AI API Key（AI 辅助识别用；空表示未配置，AI 识别默认关闭） */
+    public String zhipuApiKey = "";
+
     public static AppConfig load() {
-        // 数据目录固定为运行目录下的 data/（见 DATA_DIR 常量），config.json 不再有生效字段；
-        // 保留 save() 仅为兼容旧逻辑与后期扩展。
-        return new AppConfig();
+        AppConfig cfg = new AppConfig();
+        try {
+            if (Files.exists(CONFIG_FILE)) {
+                String json = Files.readString(CONFIG_FILE, StandardCharsets.UTF_8);
+                if (json != null && !json.trim().isEmpty()) {
+                    AppConfig loaded = GSON.fromJson(json, AppConfig.class);
+                    if (loaded != null) {
+                        cfg = loaded;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // 配置损坏时使用默认值，不影响启动
+        }
+        return cfg;
     }
 
     public void save() {

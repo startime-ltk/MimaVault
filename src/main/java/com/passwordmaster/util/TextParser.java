@@ -17,11 +17,11 @@ public final class TextParser {
     public static final Pattern PHONE = Pattern.compile("1[3-9]\\d{9}");
 
     public static final String[] PASSWORD_KEYS = {"密码", "password", "pwd", "口令"};
-    public static final String[] ACCOUNT_KEYS = {"账号", "帐号", "用户名", "user name", "username", "account"};
+    public static final String[] ACCOUNT_KEYS = {"账号", "帐号", "账户", "用户名", "学号", "user name", "username", "account"};
 
     /** 用于单行多标签场景的值截断：遇到下一个标签关键词即停止 */
     static final String[] LABEL_KEYS = {
-            "平台", "网站", "类型", "账号", "帐号", "用户名", "user name", "username", "account",
+            "平台", "网站", "类型", "账号", "帐号", "账户", "用户名", "学号", "user name", "username", "account",
             "密码", "password", "pwd", "口令", "手机", "电话", "邮箱", "email"
     };
 
@@ -33,7 +33,8 @@ public final class TextParser {
             {"抖音", "抖音"}, {"微博", "微博"}, {"网易", "网易"}, {"邮箱", "邮箱"},
             {"百度", "百度"}, {"腾讯", "腾讯"}, {"知乎", "知乎"}, {"美团", "美团"},
             {"工商银行", "工商银行"}, {"建设银行", "建设银行"}, {"招商银行", "招商银行"},
-            {"工行", "工商银行"}, {"建行", "建设银行"}, {"招行", "招商银行"}, {"银行", "银行"}
+            {"工行", "工商银行"}, {"建行", "建设银行"}, {"招行", "招商银行"}, {"银行", "银行"},
+            {"校园网", "校园网"}
     };
 
     private TextParser() {
@@ -111,16 +112,12 @@ public final class TextParser {
         return null;
     }
 
-    /** 判断 line 中是否存在 key 作为"真标签"：前缀非字母数字，且后跟冒号/等号/空白/结尾 */
+    /** 判断 line 中是否存在 key 作为"真标签"：前缀非拉丁字母，且后跟分隔符/紧贴值/结尾 */
     public static boolean isKeyLabel(String line, String key) {
         int idx = 0;
         while ((idx = line.indexOf(key, idx)) >= 0) {
-            boolean beforeOk = idx == 0 || !Character.isLetterOrDigit(line.charAt(idx - 1));
-            if (beforeOk) {
-                int end = idx + key.length();
-                if (end >= line.length() || isLabelSeparator(line.charAt(end))) {
-                    return true;
-                }
+            if (isTightLabelAt(line, key, idx)) {
+                return true;
             }
             idx += key.length();
         }
@@ -131,18 +128,37 @@ public final class TextParser {
         return c == ':' || c == '：' || c == '=' || c == '＝' || Character.isWhitespace(c);
     }
 
+    /**
+     * 紧贴容错标签判定：关键词前缀非拉丁字母（行首 / 中文 / 数字 / 标点均可），
+     * 后跟分隔符、任意非空白值字符或行尾时视为标签。
+     * 例如 "账号202501701023" "密码@Alltk061122" "密码是abc123" 均能命中；
+     * 而 "mypassword" 中 password 前缀为拉丁字母，不会被误判。
+     */
+    public static boolean isTightLabelAt(String text, String key, int idx) {
+        boolean beforeOk = idx == 0 || !isLatinLetter(text.charAt(idx - 1));
+        if (!beforeOk) {
+            return false;
+        }
+        int end = idx + key.length();
+        if (end >= text.length()) {
+            return true;
+        }
+        char c = text.charAt(end);
+        return isLabelSeparator(c) || !Character.isWhitespace(c);
+    }
+
+    private static boolean isLatinLetter(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+    }
+
     /** 提取关键词后面的内容（截断到下一个标签关键词前） */
     private static String extractAfterKey(String line, String key) {
         int idx = -1;
         int i = 0;
         while ((i = line.indexOf(key, i)) >= 0) {
-            boolean beforeOk = i == 0 || !Character.isLetterOrDigit(line.charAt(i - 1));
-            if (beforeOk) {
-                int end = i + key.length();
-                if (end >= line.length() || isLabelSeparator(line.charAt(end))) {
-                    idx = i;
-                    break;
-                }
+            if (isTightLabelAt(line, key, i)) {
+                idx = i;
+                break;
             }
             i += key.length();
         }
@@ -155,33 +171,26 @@ public final class TextParser {
         if (next >= 0) {
             rest = rest.substring(0, next);
         }
-        // 去掉分隔符：冒号、等号、横线、空格
+        // 去掉分隔符：冒号、等号、横线、空格，以及"是/为/叫"等口语虚词
         rest = rest.replaceAll("^[\\s:：=＝\\-—]+", "");
+        rest = rest.replaceAll("^(是|为|叫)", "");
         rest = rest.trim();
         // 去掉行尾干扰字符
         rest = rest.replaceAll("[，,。.;；|\\s]+$", "");
         return rest;
     }
 
-    /** 查找 rest 中下一个"真标签"位置（前缀非字母数字，且后跟冒号/等号/空白/结尾） */
+    /** 查找 rest 中下一个"真标签"位置（前缀非拉丁字母，且后跟分隔符/紧贴值/结尾） */
     private static int findNextLabel(String s) {
         int best = -1;
         for (String k : LABEL_KEYS) {
             int i = 0;
             while ((i = s.indexOf(k, i)) >= 0) {
-                boolean beforeOk = i == 0 || !Character.isLetterOrDigit(s.charAt(i - 1));
-                if (beforeOk) {
-                    int end = i + k.length();
-                    boolean afterOk = end >= s.length()
-                            || s.charAt(end) == ':' || s.charAt(end) == '：'
-                            || s.charAt(end) == '=' || s.charAt(end) == '＝'
-                            || Character.isWhitespace(s.charAt(end));
-                    if (afterOk) {
-                        if (best < 0 || i < best) {
-                            best = i;
-                        }
-                        break;
+                if (isTightLabelAt(s, k, i)) {
+                    if (best < 0 || i < best) {
+                        best = i;
                     }
+                    break;
                 }
                 i += k.length();
             }

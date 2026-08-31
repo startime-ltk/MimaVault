@@ -11,6 +11,7 @@ import com.passwordmaster.util.CsvUtil;
 import com.passwordmaster.util.DragDropUtil;
 import com.passwordmaster.util.ImageUtil;
 import com.passwordmaster.util.OcrUtil;
+import com.passwordmaster.util.PasswordGenerator;
 import com.passwordmaster.util.PasswordStrengthUtil;
 import com.passwordmaster.util.TextBatchParser;
 
@@ -40,7 +41,7 @@ import java.util.Set;
 public class MainFrame extends JFrame {
 
     private final PasswordService service;
-    private final SecretKey key;
+    private SecretKey key;
 
     private DefaultTableModel tableModel;
     private JTable table;
@@ -50,11 +51,6 @@ public class MainFrame extends JFrame {
     private final JLabel statusLabel = new JLabel("支持将图片拖入窗口，自动识别并导入");
 
     private List<Entry> currentList;
-
-    /** 是否只显示弱密码条目（点击顶部提醒按钮切换） */
-    private boolean weakOnly = false;
-    /** 顶部弱密码提醒按钮：显示统计数，点击筛选/恢复全部 */
-    private final GradientButton weakBtn = GradientButton.danger("弱密码");
 
     // ---------- 空闲自动登出（无操作安全锁定） ----------
     /** 空闲超时：连续 3 分钟（180000ms）无鼠标/键盘操作即自动登出，需重新输入主密码 */
@@ -94,6 +90,9 @@ public class MainFrame extends JFrame {
 
         // 主界面显示即视为已登录：启动空闲自动登出监控
         startIdleMonitor();
+
+        // 登录成功后自动备份全部数据到 data/backup/
+        startAutoBackup();
     }
 
     // ---------- 空闲自动登出：登录后启动，登出后停止 ----------
@@ -159,7 +158,7 @@ public class MainFrame extends JFrame {
         }
     }
 
-    /** 顶部渐变标题栏：艺术字标题 + 副标题 */
+    /** 顶部渐变标题栏：艺术字标题 + 副标题 + 安全报告入口 */
     private void buildHeader() {
         GradientPanel header = new GradientPanel(UiTheme.PRIMARY, UiTheme.PURPLE);
         header.setLayout(new BorderLayout());
@@ -170,7 +169,18 @@ public class MainFrame extends JFrame {
         title.setStroke(new Color(0x4A3A7A), 1.2f);
         title.setShadow(new Color(0, 0, 0, 70), 2);
         title.setPreferredSize(new Dimension(420, 38));
-        header.add(title, BorderLayout.WEST);
+
+        // 安全报告入口：位于 logo 右侧
+        GradientButton healthBtn = new GradientButton("安全报告",
+                new Color(0x7ED321), new Color(0x4CAF50), Color.WHITE, new Color(0x5DAF1E));
+        healthBtn.setPreferredSize(new Dimension(110, 32));
+        healthBtn.addActionListener(e -> onSecurityReport());
+
+        JPanel leftBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        leftBox.setOpaque(false);
+        leftBox.add(title);
+        leftBox.add(healthBtn);
+        header.add(leftBox, BorderLayout.WEST);
 
         JLabel sub = new JLabel("本地加密 · 安全保管", SwingConstants.RIGHT);
         sub.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
@@ -198,23 +208,29 @@ public class MainFrame extends JFrame {
 
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         row2.setOpaque(false);
-        // 密码健康检测入口：糖果绿胖按钮，打开安全报告（基于内存明文检测，不落盘）
-        GradientButton healthBtn = new GradientButton("安全报告",
-                new Color(0x7ED321), new Color(0x4CAF50), Color.WHITE, new Color(0x5DAF1E));
-        healthBtn.setPreferredSize(new Dimension(120, 32));
-        healthBtn.addActionListener(e -> onSecurityReport());
-        row2.add(healthBtn);
         row2.add(createToolButton("新增", e -> onAdd()));
-        row2.add(createToolButton("删除", e -> onDelete()));
-        row2.add(createToolButton("详情", e -> onDetail()));
-        row2.add(createToolButton("导出", e -> onExport()));
-        row2.add(createToolButton("导出CSV", e -> onExportCsv()));
-        row2.add(createToolButton("导入", e -> onImport()));
-        row2.add(createToolButton("导入CSV", e -> onImportCsv()));
         row2.add(createToolButton("智能导入", e -> onSmartImport()));
-        // 弱密码提醒：显示全库弱密码条数，点击筛选弱密码 / 再次点击恢复全部
-        weakBtn.addActionListener(e -> toggleWeakFilter());
-        row2.add(weakBtn);
+        row2.add(createToolButton("删除", e -> onDelete()));
+        row2.add(createToolButton("回收站", e -> onTrash()));
+        row2.add(createToolButton("导出", e -> onExport()));
+        row2.add(createToolButton("导入", e -> onImport()));
+        // 生成器入口：生成随机密码 / 邮箱地址，结果复制到剪贴板并弹提示
+        GradientButton genPwdBtn = createToolButton("生成密码", e -> {
+            String pwd = PasswordGenerator.generatePassword();
+            ClipboardSafe.copySecret(pwd);
+            Toast.show(MainFrame.this, "已生成随机密码并复制到剪贴板");
+        });
+        genPwdBtn.setToolTipText("生成随机密码（16位）并复制到剪贴板，可再次点击重新生成");
+        GradientButton genEmailBtn = createToolButton("生成邮箱", e -> {
+            String email = PasswordGenerator.generateEmail();
+            ClipboardSafe.copy(email);
+            Toast.show(MainFrame.this, "已生成邮箱并复制到剪贴板：" + email);
+        });
+        genEmailBtn.setToolTipText("生成一个形似真实邮箱的字符串并复制到剪贴板，用于填写表单");
+        row2.add(genPwdBtn);
+        row2.add(genEmailBtn);
+        // 修改主密码入口：验证当前密码 → 全库重加密 → 更新内存密钥
+        row2.add(createToolButton("修改主密码", e -> onChangeMaster()));
         top.add(row2);
 
         centerBox.add(top, BorderLayout.NORTH);
@@ -455,7 +471,12 @@ public class MainFrame extends JFrame {
                     statusLabel.setText(failed > 0
                             ? "识别完成（其中 " + failed + " 张失败），共解析 " + records.size() + " 条记录"
                             : "识别完成，共解析 " + records.size() + " 条记录");
-                    new ImportPreviewDialog(MainFrame.this, records, service, key).setVisible(true);
+                    List<Path> imgPaths = new ArrayList<>();
+                    for (File f : images) {
+                        imgPaths.add(f.toPath());
+                    }
+                    new ImportPreviewDialog(MainFrame.this,
+                            new SmartImportDialog.Result(records, raw, imgPaths), service, key).setVisible(true);
                     refreshTable(null, null);
                 } catch (Exception ex) {
                     statusLabel.setText("导入失败");
@@ -477,15 +498,6 @@ public class MainFrame extends JFrame {
         String keyword = kw == null ? searchField.getText() : kw;
         String category = cat == null ? (String) categoryFilter.getSelectedItem() : cat;
         currentList = service.search(keyword, category);
-        if (weakOnly) {
-            List<Entry> filtered = new ArrayList<>();
-            for (Entry e : currentList) {
-                if (isWeakEntry(e)) {
-                    filtered.add(e);
-                }
-            }
-            currentList = filtered;
-        }
 
         tableModel.setRowCount(0);
         for (Entry e : currentList) {
@@ -499,7 +511,6 @@ public class MainFrame extends JFrame {
                     strengthText(e)
             });
         }
-        updateWeakBadge();
     }
 
     /** 解密并计算条目密码强度；未设置密码显示「—」 */
@@ -511,36 +522,22 @@ public class MainFrame extends JFrame {
         return PasswordStrengthUtil.evaluate(pwd).level.getText();
     }
 
-    /** 是否为弱密码条目：有密码且强度为弱 */
-    private boolean isWeakEntry(Entry e) {
-        String pwd = service.decryptPassword(e, key);
-        if (pwd == null || pwd.isEmpty()) {
-            return false;
+    /**
+     * 修改主密码：弹出对话框验证当前密码 → 全库重加密 → 用返回的新密钥替换内存密钥，
+     * 刷新表格（强度列按新密钥重新解密计算）。
+     */
+    private void onChangeMaster() {
+        ChangeMasterDialog dlg = new ChangeMasterDialog(this, service);
+        dlg.setVisible(true);
+        SecretKey newKey = dlg.getNewKey();
+        if (newKey != null) {
+            this.key = newKey;
+            refreshTable(null, null);
+            statusLabel.setText("主密码已修改，全部数据已用新主密码重新加密");
+            JOptionPane.showMessageDialog(this,
+                    "主密码修改成功，全部数据已重新加密。\n下次启动请使用新主密码登录。",
+                    "修改完成", JOptionPane.INFORMATION_MESSAGE);
         }
-        return PasswordStrengthUtil.evaluate(pwd).level == PasswordStrengthUtil.Level.WEAK;
-    }
-
-    /** 刷新顶部弱密码提醒按钮：统计全库弱密码条数，N=0 显示「密码强度良好」 */
-    private void updateWeakBadge() {
-        int weak = 0;
-        for (Entry e : service.listEntries()) {
-            if (isWeakEntry(e)) {
-                weak++;
-            }
-        }
-        if (weakOnly) {
-            weakBtn.setText("显示全部");
-        } else if (weak == 0) {
-            weakBtn.setText("密码强度良好");
-        } else {
-            weakBtn.setText("有 " + weak + " 条弱密码");
-        }
-    }
-
-    /** 点击弱密码提醒：筛选出弱密码条目，再次点击恢复全部 */
-    private void toggleWeakFilter() {
-        weakOnly = !weakOnly;
-        refreshTable(null, null);
     }
 
     /**
@@ -560,7 +557,7 @@ public class MainFrame extends JFrame {
 
     /**
      * 定位并选中指定条目（安全报告跳转用）。
-     * 若条目不在当前列表（处于搜索/分类/弱密码筛选状态），先恢复全部显示再定位，
+     * 若条目不在当前列表（处于搜索/分类筛选状态），先恢复全部显示再定位，
      * 并滚动到可视区域选中。
      */
     public void locateEntryById(long entryId) {
@@ -575,7 +572,6 @@ public class MainFrame extends JFrame {
             // 不在当前列表：清空搜索与筛选，恢复全部条目
             searchField.setText("");
             categoryFilter.setSelectedItem("全部");
-            weakOnly = false;
             refreshTable(null, null);
             for (int i = 0; i < currentList.size(); i++) {
                 if (currentList.get(i).getId() == entryId) {
@@ -619,12 +615,20 @@ public class MainFrame extends JFrame {
             return;
         }
         int r = JOptionPane.showConfirmDialog(this,
-                "确定删除【" + nullToEmpty(selected.getPlatform()) + " / " + nullToEmpty(selected.getAccount()) + "】？",
-                "确认删除", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                "确定将【" + nullToEmpty(selected.getPlatform()) + " / " + nullToEmpty(selected.getAccount()) + "】移入回收站？\n可在回收站中恢复或彻底删除。",
+                "移入回收站", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (r == JOptionPane.YES_OPTION) {
-            service.delete(selected.getId());
+            service.trash(selected.getId());
             refreshTable(null, null);
+            statusLabel.setText("已移入回收站");
         }
+    }
+
+    /** 打开回收站：恢复 / 彻底删除 / 清空 */
+    private void onTrash() {
+        TrashDialog dlg = new TrashDialog(this, service);
+        dlg.setVisible(true);
+        refreshTable(null, null);
     }
 
     private void onDetail() {
@@ -684,7 +688,26 @@ public class MainFrame extends JFrame {
         statusLabel.setText(fieldName + "已复制，30 秒后自动清除剪贴板");
     }
 
+    /**
+     * 导出：先选择格式（密匣备份 .pmaster / 明文 CSV），再分发到对应导出逻辑
+     */
     private void onExport() {
+        Object[] options = {"密匣备份 (.pmaster)", "CSV 文件 (.csv)"};
+        int choice = JOptionPane.showOptionDialog(this,
+                "请选择导出格式：\n密匣备份：加密格式，导入时需主密码还原\nCSV：通用明文格式，兼容其它密码管理器",
+                "导出", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        if (choice == JOptionPane.CLOSED_OPTION) {
+            return;
+        }
+        if (choice == 0) {
+            exportPmaster();
+        } else {
+            exportCsv();
+        }
+    }
+
+    /** 导出为密匣备份（.pmaster，加密格式） */
+    private void exportPmaster() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("导出备份");
         chooser.setSelectedFile(new java.io.File("MimaVault_backup_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date()) + ".pmaster"));
@@ -709,15 +732,29 @@ public class MainFrame extends JFrame {
         }
     }
 
+    /**
+     * 导入：文件选择对话框同时支持 .pmaster 与 .csv，按扩展名自动调用对应导入逻辑
+     */
     private void onImport() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("导入备份");
-        chooser.setFileFilter(new FileNameExtensionFilter("密匣备份 (*.pmaster)", "pmaster"));
+        chooser.setDialogTitle("导入");
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.addChoosableFileFilter(new FileNameExtensionFilter("密匣备份 / CSV (*.pmaster; *.csv)", "pmaster", "csv"));
+        chooser.addChoosableFileFilter(new FileNameExtensionFilter("密匣备份 (*.pmaster)", "pmaster"));
+        chooser.addChoosableFileFilter(new FileNameExtensionFilter("CSV 文件 (*.csv)", "csv"));
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
             return;
         }
         Path source = chooser.getSelectedFile().toPath();
+        if (source.toString().toLowerCase().endsWith(".csv")) {
+            importCsv(source);
+        } else {
+            importPmaster(source);
+        }
+    }
 
+    /** 导入密匣备份（.pmaster）：输入主密码解密后进入导入流程 */
+    private void importPmaster(Path source) {
         // 输入主密码解密
         JPasswordField pwdField = new JPasswordField(16);
         int r = JOptionPane.showConfirmDialog(this, pwdField, "请输入主密码解密备份文件", JOptionPane.OK_CANCEL_OPTION);
@@ -745,7 +782,7 @@ public class MainFrame extends JFrame {
     }
 
     /** 导出为 CSV（明文文件，导出前红色风险警告） */
-    private void onExportCsv() {
+    private void exportCsv() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("导出为 CSV");
         chooser.setSelectedFile(new java.io.File("MimaVault_export_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date()) + ".csv"));
@@ -778,14 +815,7 @@ public class MainFrame extends JFrame {
     }
 
     /** 从 CSV 导入（通用格式，明文密码加密后入库，复用现有加密链路） */
-    private void onImportCsv() {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("从 CSV 导入");
-        chooser.setFileFilter(new FileNameExtensionFilter("CSV 文件 (*.csv)", "csv"));
-        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-        Path source = chooser.getSelectedFile().toPath();
+    private void importCsv(Path source) {
         try {
             List<CsvUtil.CsvRow> rows = CsvUtil.parse(source);
             if (rows.isEmpty()) {
@@ -804,6 +834,12 @@ public class MainFrame extends JFrame {
                     e.setPasswordEnc(AesUtil.encrypt(row.password, key));
                 }
                 entries.add(e);
+            }
+            // 用户确认导入内容后才入库
+            ImportConfirmDialog confirm = new ImportConfirmDialog(this, "CSV 导入确认", entries, key);
+            confirm.setVisible(true);
+            if (!confirm.isConfirmed()) {
+                return;
             }
             doImportCsv(entries);
         } catch (Exception ex) {
@@ -875,12 +911,11 @@ public class MainFrame extends JFrame {
 
     /** 智能导入：来源选择 -> 解析 -> 预览确认 -> 入库 */
     private void onSmartImport() {
-        java.util.List<com.passwordmaster.util.TextBatchParser.RawRecord> records =
-                com.passwordmaster.ui.SmartImportDialog.collect(this);
-        if (records == null || records.isEmpty()) {
+        SmartImportDialog.Result result = SmartImportDialog.collect(this);
+        if (result == null || result.records == null || result.records.isEmpty()) {
             return;
         }
-        new ImportPreviewDialog(this, records, service, key).setVisible(true);
+        new ImportPreviewDialog(this, result, service, key).setVisible(true);
         refreshTable(null, null);
     }
 
@@ -896,6 +931,17 @@ public class MainFrame extends JFrame {
                 return;
             }
             mode = (choice == 0) ? "覆盖" : "合并";
+        }
+
+        // 用户确认导入内容后才继续（覆盖模式下先确认再清空，取消不产生任何副作用）
+        java.util.List<Entry> previewEntries = new ArrayList<>();
+        for (BackupUtil.BackupItem item : pack.items) {
+            previewEntries.add(item.toEntry());
+        }
+        ImportConfirmDialog confirm = new ImportConfirmDialog(this, "备份导入确认", previewEntries, key);
+        confirm.setVisible(true);
+        if (!confirm.isConfirmed()) {
+            return;
         }
 
         int skipped = 0;
@@ -962,6 +1008,43 @@ public class MainFrame extends JFrame {
 
     /** 覆盖导入取消哨兵 */
     private static final Path IMPORT_CANCELLED = Paths.get("__CANCELLED__");
+
+    /**
+     * 登录成功后自动备份：后台线程将全部条目导出为 data/backup/backup_时间戳_auto.pmaster。
+     * 空库跳过；失败不打断使用，仅状态栏提示。
+     */
+    private void startAutoBackup() {
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                autoBackup();
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                // 结果已在 doInBackground 内通过状态栏反馈
+            }
+        }.execute();
+    }
+
+    private void autoBackup() {
+        try {
+            List<Entry> all = service.listEntries();
+            if (all.isEmpty()) {
+                return;
+            }
+            Path dir = AppConfig.DATA_DIR.resolve("backup");
+            Files.createDirectories(dir);
+            Path target = dir.resolve("backup_"
+                    + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date())
+                    + "_auto.pmaster");
+            BackupUtil.export(all, key, service.getMasterSaltHex(), service.getMasterIterations(), target);
+            SwingUtilities.invokeLater(() -> statusLabel.setText("自动备份完成：" + target.getFileName()));
+        } catch (Exception ex) {
+            SwingUtilities.invokeLater(() -> statusLabel.setText("自动备份失败：" + ex.getMessage()));
+        }
+    }
 
     /**
      * 覆盖导入前的自动备份：导出当前全部条目为 data/backup/backup_时间戳_before_import.pmaster

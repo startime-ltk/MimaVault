@@ -2,11 +2,15 @@ package com.passwordmaster.ui;
 
 import com.passwordmaster.config.AppConfig;
 import com.passwordmaster.model.Entry;
+import com.passwordmaster.util.AesUtil;
+import com.passwordmaster.util.ClipboardSafe;
 import com.passwordmaster.util.DragDropUtil;
 import com.passwordmaster.util.ImageUtil;
 import com.passwordmaster.util.OcrUtil;
+import com.passwordmaster.util.PasswordGenerator;
 import com.passwordmaster.util.TextParser;
 
+import javax.crypto.SecretKey;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
@@ -30,20 +34,28 @@ public class EntryEditDialog extends JDialog {
     private final JComboBox<String> categoryBox = new JComboBox<>(Entry.CATEGORIES);
     private final JTextField platformField = new JTextField(20);
     private final JTextField accountField = new JTextField(20);
-    private final JPasswordField passwordField = new JPasswordField(20);
+    private final JTextField passwordField = new JTextField(20);
     private final JTextField phoneField = new JTextField(20);
     private final JTextField emailField = new JTextField(20);
     private final JTextArea noteArea = new JTextArea(3, 20);
     private final JLabel imageLabel = new JLabel("未选择");
     private final JLabel gestureLabel = new JLabel("未设置");
+    private final SecretKey key;      // 编辑时用于解密显示原密码；新增可传 null
+    private String originalPlain;     // 编辑加载时的明文密码（用于判断是否修改）
+    private boolean keepOld = false;  // 是否保留原密码密文
     private String imagePath;     // 新选择的图片相对路径
     private String gestureSeq;    // 手势序列
     private boolean saved = false;
 
     public EntryEditDialog(Window owner, Entry entry) {
+        this(owner, entry, null);
+    }
+
+    public EntryEditDialog(Window owner, Entry entry, SecretKey key) {
         super(owner, entry == null ? "新增条目" : "编辑条目", ModalityType.APPLICATION_MODAL);
         this.entry = entry == null ? new Entry() : entry;
         this.isEdit = entry != null;
+        this.key = key;
         this.imagePath = this.entry.getImagePath();
         setIconImage(UiTheme.getAppIcon());
         this.gestureSeq = this.entry.getGestureSeq();
@@ -81,8 +93,40 @@ public class EntryEditDialog extends JDialog {
         gbc.gridx = 0;
         gbc.gridy = row;
         form.add(new JLabel("密码："), gbc);
+        JPanel pwdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        pwdPanel.setOpaque(false);
+        pwdPanel.add(passwordField);
+        // 密码框右侧手势入口：点进去录入手势密码
+        GradientButton gestureBtn = GradientButton.secondary("手势");
+        gestureBtn.setToolTipText("为此条目设置手势密码");
+        gestureBtn.addActionListener(e -> {
+            String seq = GestureDialog.showDialog(this, gestureSeq);
+            if (seq != null) {
+                gestureSeq = seq;
+                gestureLabel.setText(seq);
+            }
+        });
+        GradientButton clearGestureBtn = GradientButton.secondary("清除手势");
+        clearGestureBtn.addActionListener(e -> {
+            gestureSeq = null;
+            gestureLabel.setText("未设置");
+        });
+        gestureLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        pwdPanel.add(gestureBtn);
+        pwdPanel.add(clearGestureBtn);
+        // 密码生成器：生成随机密码填入文本框，同时复制到剪贴板并弹提示；可反复点击重新生成
+        GradientButton genPwdBtn = GradientButton.secondary("生成随机密码");
+        genPwdBtn.setToolTipText("生成随机密码（16位）并复制到剪贴板，可再次点击重新生成");
+        genPwdBtn.addActionListener(e -> {
+            String pwd = PasswordGenerator.generatePassword();
+            passwordField.setText(pwd);
+            ClipboardSafe.copySecret(pwd);
+            Toast.show(EntryEditDialog.this, "已生成密码并复制到剪贴板");
+        });
+        pwdPanel.add(genPwdBtn);
+        pwdPanel.add(gestureLabel);
         gbc.gridx = 1;
-        form.add(passwordField, gbc);
+        form.add(pwdPanel, gbc);
 
         row++;
         gbc.gridx = 0;
@@ -144,33 +188,6 @@ public class EntryEditDialog extends JDialog {
             handleDropImage(images.get(0));
         });
 
-        // 手势密码
-        row++;
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        form.add(new JLabel("手势密码："), gbc);
-        JPanel gesturePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        gesturePanel.setOpaque(false);
-        gestureLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
-        GradientButton recordGesture = GradientButton.secondary("录入手势...");
-        recordGesture.addActionListener(e -> {
-            String seq = GestureDialog.showDialog(this, gestureSeq);
-            if (seq != null) {
-                gestureSeq = seq;
-                gestureLabel.setText(seq);
-            }
-        });
-        GradientButton clearGesture = GradientButton.secondary("清除");
-        clearGesture.addActionListener(e -> {
-            gestureSeq = null;
-            gestureLabel.setText("未设置");
-        });
-        gesturePanel.add(recordGesture);
-        gesturePanel.add(clearGesture);
-        gesturePanel.add(gestureLabel);
-        gbc.gridx = 1;
-        form.add(gesturePanel, gbc);
-
         add(form, BorderLayout.CENTER);
 
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -198,7 +215,15 @@ public class EntryEditDialog extends JDialog {
         emailField.setText(nullToEmpty(entry.getEmail()));
         noteArea.setText(nullToEmpty(entry.getNote()));
         if (isEdit && entry.getPasswordEnc() != null && !entry.getPasswordEnc().isEmpty()) {
-            passwordField.setText("********");
+            if (key != null) {
+                String plain = AesUtil.decrypt(entry.getPasswordEnc(), key);
+                if (plain != null) {
+                    passwordField.setText(plain);
+                    originalPlain = plain;
+                }
+            } else {
+                passwordField.setText("（已加密，无法显示）");
+            }
         }
         if (imagePath != null && !imagePath.isEmpty()) {
             Path p = ImageUtil.resolveImagePath(imagePath);
@@ -364,18 +389,13 @@ public class EntryEditDialog extends JDialog {
             JOptionPane.showMessageDialog(this, "平台名称不能为空", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        char[] pwdChars = passwordField.getPassword();
-        String password;
-        try {
-            password = new String(pwdChars).trim();
-        } finally {
-            java.util.Arrays.fill(pwdChars, '\0'); // 明文用完即清
-        }
-        boolean hasPassword = password.length() > 0 && !"********".equals(password);
+        String password = passwordField.getText().trim();
+        boolean hasPassword = password.length() > 0 && !"（已加密，无法显示）".equals(password);
         boolean hasImage = imagePath != null && !imagePath.isEmpty();
-        boolean keepOldPassword = isEdit && "********".equals(password);
+        // 密码未修改：保留原密码
+        boolean keepOldPassword = isEdit && originalPlain != null && originalPlain.equals(password);
 
-        // 密码可留空：仅当有截图或已有密码时允许
+        // 密码可留空：仅当有截图、已有密码或未修改时允许
         if (!hasPassword && !hasImage && !(isEdit && keepOldPassword)) {
             int r = JOptionPane.showConfirmDialog(this,
                     "密码为空且未上传截图，确定保存吗？",
@@ -394,7 +414,8 @@ public class EntryEditDialog extends JDialog {
         entry.setImagePath(imagePath);
         entry.setGestureSeq(gestureSeq);
         saved = true;
-        passwordPlain = hasPassword ? password : null;
+        keepOld = keepOldPassword;
+        passwordPlain = keepOldPassword ? null : (hasPassword ? password : null);
         dispose();
     }
 
@@ -413,14 +434,9 @@ public class EntryEditDialog extends JDialog {
         return passwordPlain;
     }
 
-    /** 是否保留原密码（编辑时密码框未改动） */
+    /** 是否保留原密码（编辑时密码框未修改） */
     public boolean isKeepOldPassword() {
-        char[] pwdChars = passwordField.getPassword();
-        try {
-            return isEdit && new String(pwdChars).equals("********");
-        } finally {
-            java.util.Arrays.fill(pwdChars, '\0'); // 明文用完即清
-        }
+        return keepOld;
     }
 
     private static String nullToEmpty(String s) {

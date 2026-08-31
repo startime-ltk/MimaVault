@@ -150,6 +150,60 @@ public class PasswordService {
         db.saveMasterHash(AesUtil.buildPbkdf2Record(masterPassword, salt, AesUtil.PBKDF2_ITERATIONS));
     }
 
+    /**
+     * 修改主密码：校验旧密码后，用旧密钥解密全部条目，再用新主密码派生密钥重加密写回，
+     * 最后更新主密码哈希（pbkdf2 新格式）。先预检全部条目可解密再执行写库，
+     * 避免中途失败导致数据不可用；哈希更新放在最后一步，失败时旧数据仍可用旧密码打开。
+     *
+     * @param oldPassword 当前主密码（校验失败抛 IllegalArgumentException）
+     * @param newPassword 新主密码
+     * @return 新主密码派生的 AES 密钥，调用方需用它替换内存中持有的旧密钥
+     */
+    public SecretKey changeMasterPassword(char[] oldPassword, char[] newPassword) {
+        // 1. 校验当前主密码
+        VerifyResult result = verifyMasterPassword(oldPassword);
+        if (result == VerifyResult.MISMATCH) {
+            throw new IllegalArgumentException("当前主密码错误");
+        }
+        // 旧格式（SHA-256）防御性迁移：正常登录后已是新格式，此处仅兜底
+        if (result == VerifyResult.MATCH_NEED_UPGRADE) {
+            upgradeToPbkdf2(oldPassword);
+        }
+
+        // 2. 派生旧密钥与新密钥（新随机盐 + 标准迭代次数）
+        SecretKey oldKey = deriveKey(oldPassword);
+        byte[] salt = AesUtil.generateSalt();
+        SecretKey newKey = AesUtil.deriveKeyPbkdf2(newPassword, salt, AesUtil.PBKDF2_ITERATIONS);
+
+        // 3. 预检：先解密验证所有密文，收集需重加密条目
+        List<Entry> entries = db.getAllEntries();
+        List<Entry> affected = new java.util.ArrayList<>();
+        for (Entry e : entries) {
+            String enc = e.getPasswordEnc();
+            if (enc == null || enc.isEmpty()) {
+                continue;
+            }
+            try {
+                AesUtil.decrypt(enc, oldKey);
+                affected.add(e);
+            } catch (Exception ex) {
+                throw new IllegalStateException(
+                        "修改主密码预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】无法用当前主密码解密，已中止（数据未改动）", ex);
+            }
+        }
+
+        // 4. 执行重加密写回
+        for (Entry e : affected) {
+            String plain = AesUtil.decrypt(e.getPasswordEnc(), oldKey);
+            e.setPasswordEnc(AesUtil.encrypt(plain, newKey));
+            db.updateEntry(e);
+        }
+
+        // 5. 更新主密码哈希（最后一步，失败时旧数据仍可用旧密码打开）
+        db.saveMasterHash(AesUtil.buildPbkdf2Record(newPassword, salt, AesUtil.PBKDF2_ITERATIONS));
+        return newKey;
+    }
+
     // ---------- 条目 CRUD ----------
 
     /** 新增条目（内部自动加密密码字段） */
@@ -190,6 +244,33 @@ public class PasswordService {
 
     public void delete(long id) {
         db.deleteEntry(id);
+    }
+
+    // ---------- 回收站 ----------
+
+    /** 移入回收站（软删除，可恢复） */
+    public void trash(long id) {
+        db.trashEntry(id);
+    }
+
+    /** 从回收站恢复 */
+    public void restore(long id) {
+        db.restoreEntry(id);
+    }
+
+    /** 彻底删除回收站中的单条条目 */
+    public void purge(long id) {
+        db.purgeEntry(id);
+    }
+
+    /** 清空回收站 */
+    public void purgeAllTrashed() {
+        db.purgeAllTrashed();
+    }
+
+    /** 回收站全部条目 */
+    public List<Entry> listTrashed() {
+        return db.listTrashedEntries();
     }
 
     public Entry getById(long id) {

@@ -70,6 +70,7 @@ public class DatabaseManager {
             // 兼容旧库：检测缺失列并补齐
             ensureColumn("entries", "category", "TEXT DEFAULT '网站'");
             ensureColumn("entries", "sync_status", "TEXT DEFAULT 'local'");
+            ensureColumn("entries", "deleted_at", "INTEGER");
         } catch (Exception e) {
             throw new IllegalStateException("数据库初始化失败", e);
         }
@@ -201,10 +202,75 @@ public class DatabaseManager {
         }
     }
 
-    /** 查询全部条目 */
+    // ---------- 回收站（软删除） ----------
+
+    /** 移入回收站：仅置 deleted_at，不物理删除 */
+    public void trashEntry(long id) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement("UPDATE entries SET deleted_at=?, updated_at=? WHERE id=? AND deleted_at IS NULL")) {
+            long now = System.currentTimeMillis();
+            ps.setLong(1, now);
+            ps.setLong(2, now);
+            ps.setLong(3, id);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new IllegalStateException("移入回收站失败", ex);
+        }
+    }
+
+    /** 从回收站恢复：清空 deleted_at */
+    public void restoreEntry(long id) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement("UPDATE entries SET deleted_at=NULL, updated_at=? WHERE id=? AND deleted_at IS NOT NULL")) {
+            ps.setLong(1, System.currentTimeMillis());
+            ps.setLong(2, id);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new IllegalStateException("恢复条目失败", ex);
+        }
+    }
+
+    /** 彻底删除回收站中的单条条目 */
+    public void purgeEntry(long id) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM entries WHERE id=? AND deleted_at IS NOT NULL")) {
+            ps.setLong(1, id);
+            ps.executeUpdate();
+        } catch (SQLException ex) {
+            throw new IllegalStateException("彻底删除失败", ex);
+        }
+    }
+
+    /** 清空回收站：物理删除所有已标记删除的条目 */
+    public void purgeAllTrashed() {
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate("DELETE FROM entries WHERE deleted_at IS NOT NULL");
+        } catch (SQLException e) {
+            throw new IllegalStateException("清空回收站失败", e);
+        }
+    }
+
+    /** 查询回收站全部条目（按删除时间倒序） */
+    public List<Entry> listTrashedEntries() {
+        List<Entry> list = new ArrayList<>();
+        String sql = "SELECT * FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC";
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapRow(rs));
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("查询回收站失败", e);
+        }
+        return list;
+    }
+
+    /** 查询全部条目（不含回收站） */
     public List<Entry> getAllEntries() {
         List<Entry> list = new ArrayList<>();
-        String sql = "SELECT * FROM entries ORDER BY updated_at DESC";
+        String sql = "SELECT * FROM entries WHERE deleted_at IS NULL ORDER BY updated_at DESC";
         try (Connection conn = connect();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
@@ -225,7 +291,7 @@ public class DatabaseManager {
      */
     public List<Entry> searchEntries(String keyword, String category) {
         List<Entry> list = new ArrayList<>();
-        StringBuilder sql = new StringBuilder("SELECT * FROM entries WHERE 1=1");
+        StringBuilder sql = new StringBuilder("SELECT * FROM entries WHERE deleted_at IS NULL");
         List<Object> params = new ArrayList<>();
         if (category != null && !category.trim().isEmpty() && !"全部".equals(category.trim())) {
             sql.append(" AND category=?");
@@ -330,8 +396,10 @@ public class DatabaseManager {
         e.setSyncStatus(rs.getString("sync_status"));
         long created = rs.getLong("created_at");
         long updated = rs.getLong("updated_at");
+        long deleted = rs.getLong("deleted_at");
         if (created > 0) e.setCreatedAt(new java.util.Date(created));
         if (updated > 0) e.setUpdatedAt(new java.util.Date(updated));
+        if (deleted > 0) e.setDeletedAt(new java.util.Date(deleted));
         return e;
     }
 }
