@@ -292,7 +292,7 @@ public class EntryEditDialog extends JDialog {
             }
         }
 
-        // 2. OCR 识别（首次会提示下载中文语言包）
+        // 2. OCR 识别（首次自动释放内置语言包，完全零联网）
         final Path ocrFile = source;
         setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
         try {

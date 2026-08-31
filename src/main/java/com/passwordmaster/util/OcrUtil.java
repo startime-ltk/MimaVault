@@ -13,21 +13,19 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 
 /**
  * 离线 OCR 识图工具（Tesseract + tess4j）
  * - 识别语言：中文 chi_sim
- * - 语言包首次使用时才下载（data/tessdata/chi_sim.traineddata，约 15MB）
- * - 下载成功后离线可用
+ * - 中文语言包已内置在 jar 的 /tessdata/chi_sim.traineddata（约 2.4MB）
+ * - 首次使用自动释放到 data/tessdata/，完全零联网
  */
 public final class OcrUtil {
 
     private static final String LANGUAGE = "chi_sim";
     private static final String TRAINEDDATA_NAME = "chi_sim.traineddata";
-    private static final String DOWNLOAD_URL =
-            "https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_sim.traineddata";
+    /** jar 内内置语言包的 classpath 资源路径 */
+    private static final String RESOURCE_PATH = "/tessdata/" + TRAINEDDATA_NAME;
 
     private OcrUtil() {
     }
@@ -54,7 +52,7 @@ public final class OcrUtil {
 
     /**
      * 识别图片中的文字
-     * 首次使用会先下载中文语言包；语言包缺失且用户取消返回 null
+     * 首次使用会自动从 jar 释放内置中文语言包；释放失败返回 null
      */
     public static String doOcr(File imageFile) throws Exception {
         return doOcr(imageFile, null);
@@ -62,15 +60,15 @@ public final class OcrUtil {
 
     /**
      * 识别图片中的文字（带父窗口）
-     * 首次使用会先下载中文语言包（确认/进度对话框以 parent 为宿主）；语言包缺失且用户取消返回 null
+     * 首次使用会自动从 jar 释放内置中文语言包（提示对话框以 parent 为宿主）；释放失败返回 null
      */
     public static String doOcr(File imageFile, Component parent) throws Exception {
         if (imageFile == null || !imageFile.exists()) {
             throw new IllegalArgumentException("图片文件不存在");
         }
         if (!isLanguageReady()) {
-            boolean downloaded = downloadLanguagePack(parent);
-            if (!downloaded) {
+            boolean released = ensureLanguagePack(parent);
+            if (!released) {
                 return null;
             }
         }
@@ -88,109 +86,58 @@ public final class OcrUtil {
     }
 
     /**
-     * 下载中文语言包，带简单百分比进度条
+     * 从 jar 内置资源释放中文语言包到 data/tessdata/（完全零联网）。
+     * 已存在且非空则直接跳过；释放失败弹窗提示并返回 false。
      *
-     * @return true 下载成功；false 用户取消或失败（失败已弹窗提示）
+     * @return true 释放成功或已就绪；false 释放失败（已弹窗提示）
      */
-    private static boolean downloadLanguagePack(Component parent) {
-        Window owner = null;
-        if (parent instanceof Window) {
-            owner = (Window) parent;
-        } else if (parent != null) {
-            owner = SwingUtilities.getWindowAncestor(parent);
+    private static boolean ensureLanguagePack(Component parent) {
+        File target = getTrainedDataFile();
+        if (target.exists() && target.length() > 0) {
+            return true;
         }
-
-        int confirm = JOptionPane.showConfirmDialog(parent,
-                "首次使用识图功能需要下载中文语言包（约 15MB）。\n"
-                        + "下载后将保存到 data\\tessdata\\，之后完全离线可用。\n是否现在下载？",
-                "下载中文语言包", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
-        if (confirm != JOptionPane.OK_OPTION) {
+        try (InputStream in = OcrUtil.class.getResourceAsStream(RESOURCE_PATH)) {
+            if (in == null) {
+                throw new IOException("jar 内未找到内置语言包资源 " + RESOURCE_PATH);
+            }
+            File dir = getTessdataDir();
+            if (!dir.exists() && !dir.mkdirs()) {
+                throw new IOException("无法创建目录 " + dir.getAbsolutePath());
+            }
+            // 先写 .tmp 临时文件，释放成功后再改名，避免中断残留半成品
+            File tmp = new File(dir, TRAINEDDATA_NAME + ".tmp");
+            try (OutputStream out = new FileOutputStream(tmp)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    out.write(buf, 0, n);
+                }
+                out.flush();
+            }
+            if (tmp.length() == 0) {
+                throw new IOException("语言包释放内容为空");
+            }
+            if (target.exists() && !target.delete()) {
+                throw new IOException("无法替换已存在的语言包文件");
+            }
+            if (!tmp.renameTo(target)) {
+                throw new IOException("语言包文件重命名失败");
+            }
+            return true;
+        } catch (Exception ex) {
+            // 清理残留 .tmp，保证 isLanguageReady 不误判、下次可重试
+            try {
+                File tmpFile = new File(getTessdataDir(), TRAINEDDATA_NAME + ".tmp");
+                if (tmpFile.exists()) {
+                    tmpFile.delete();
+                }
+            } catch (Exception ignored) {
+            }
+            JOptionPane.showMessageDialog(parent,
+                    "内置中文语言包释放失败：" + ex.getMessage()
+                            + "\n请确认程序对 data 目录有写入权限。",
+                    "语言包初始化失败", JOptionPane.ERROR_MESSAGE);
             return false;
         }
-
-        JDialog dlg = new JDialog(owner, "下载中文语言包", ModalityType.APPLICATION_MODAL);
-        JPanel panel = new JPanel(new BorderLayout(8, 8));
-        panel.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
-        JLabel label = new JLabel("正在下载 chi_sim.traineddata ...");
-        label.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
-        JProgressBar bar = new JProgressBar(0, 100);
-        bar.setStringPainted(true);
-        bar.setPreferredSize(new Dimension(360, 24));
-        panel.add(label, BorderLayout.NORTH);
-        panel.add(bar, BorderLayout.CENTER);
-        dlg.add(panel);
-        dlg.pack();
-        dlg.setLocationRelativeTo(owner);
-        dlg.setResizable(false);
-
-        final boolean[] result = {false};
-        Thread worker = new Thread(() -> {
-            try {
-                URL url = new URL(DOWNLOAD_URL);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(15000);
-                conn.setReadTimeout(60000);
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-                int code = conn.getResponseCode();
-                if (code != HttpURLConnection.HTTP_OK) {
-                    throw new IOException("服务器返回错误码 " + code);
-                }
-                long total = conn.getContentLengthLong();
-                File target = getTrainedDataFile();
-                // 先写 .part 临时文件，下载成功后再改名，避免中断残留半成品导致无法重试
-                File part = new File(getTessdataDir(), TRAINEDDATA_NAME + ".part");
-                try (InputStream in = conn.getInputStream();
-                     OutputStream out = new FileOutputStream(part)) {
-                    byte[] buf = new byte[8192];
-                    long done = 0;
-                    int n;
-                    while ((n = in.read(buf)) != -1) {
-                        out.write(buf, 0, n);
-                        done += n;
-                        if (total > 0) {
-                            final int pct = (int) (done * 100 / total);
-                            SwingUtilities.invokeLater(() -> bar.setValue(pct));
-                        }
-                    }
-                    out.flush();
-                }
-                if (part.length() == 0) {
-                    throw new IOException("下载内容为空");
-                }
-                if (target.exists() && !target.delete()) {
-                    throw new IOException("无法替换已存在的语言包文件");
-                }
-                if (!part.renameTo(target)) {
-                    throw new IOException("语言包文件重命名失败");
-                }
-                result[0] = true;
-                SwingUtilities.invokeLater(() -> {
-                    dlg.dispose();
-                    JOptionPane.showMessageDialog(parent, "语言包下载完成，可开始使用识图功能。", "提示",
-                            JOptionPane.INFORMATION_MESSAGE);
-                });
-            } catch (Exception ex) {
-                // 清理半成品 .part，保证 isLanguageReady 不误判、下次可重试
-                try {
-                    File partFile = new File(getTessdataDir(), TRAINEDDATA_NAME + ".part");
-                    if (partFile.exists()) {
-                        partFile.delete();
-                    }
-                } catch (Exception ignored) {
-                }
-                SwingUtilities.invokeLater(() -> {
-                    dlg.dispose();
-                    JOptionPane.showMessageDialog(parent,
-                            "语言包下载失败：" + ex.getMessage()
-                                    + "\n您可以手动下载 chi_sim.traineddata 并放入 data\\tessdata\\ 目录。",
-                            "下载失败", JOptionPane.ERROR_MESSAGE);
-                });
-            }
-        });
-        worker.setDaemon(true);
-        worker.start();
-
-        dlg.setVisible(true);
-        return result[0];
     }
 }

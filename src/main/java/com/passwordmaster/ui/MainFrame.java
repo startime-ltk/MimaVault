@@ -309,7 +309,7 @@ public class MainFrame extends JFrame {
                     try {
                         String ocr;
                         if (!OcrUtil.isLanguageReady()) {
-                            // 首次需下载语言包：确认/进度对话框必须在 EDT 上弹窗，避免后台线程弹窗
+                            // 首次需释放内置语言包：弹窗提示必须在 EDT 上执行，避免后台线程弹窗
                             final File ff = f;
                             final String[] result = {null};
                             SwingUtilities.invokeAndWait(() -> {
@@ -324,7 +324,7 @@ public class MainFrame extends JFrame {
                             ocr = OcrUtil.doOcr(f, MainFrame.this);
                         }
                         if (ocr == null) {
-                            failed++; // 语言包未下载且用户取消
+                            failed++; // 语言包释放失败或识别失败
                         } else if (ocr.trim().isEmpty()) {
                             failed++;
                         } else {
@@ -356,7 +356,7 @@ public class MainFrame extends JFrame {
                     String raw = get().toString().trim();
                     if (raw.isEmpty()) {
                         String msg = failed > 0
-                                ? "共有 " + failed + " 张图片识别失败，未进入导入流程。\n请检查图片清晰度，或确认语言包已下载。"
+                                ? "共有 " + failed + " 张图片识别失败，未进入导入流程。\n请检查图片清晰度，或确认内置语言包释放正常。"
                                 : "未能从图片中识别到文本。";
                         statusLabel.setText("识别失败 " + failed + " 张，未进入导入");
                         JOptionPane.showMessageDialog(MainFrame.this, msg, "识别结果", JOptionPane.WARNING_MESSAGE);
