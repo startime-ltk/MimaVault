@@ -28,6 +28,20 @@ public class DatabaseManager {
      */
     public void init() {
         try {
+            // 品牌统一迁移：检测旧库 data/PasswordMaster.db，自动迁移为 data/MimaVault.db（重命名，不删数据）
+            try {
+                java.nio.file.Path oldDb = AppConfig.DATA_DIR.resolve("PasswordMaster.db");
+                java.nio.file.Path newDb = AppConfig.DB_FILE;
+                if (java.nio.file.Files.exists(oldDb) && !java.nio.file.Files.exists(newDb)) {
+                    java.nio.file.Files.move(oldDb, newDb);
+                    java.nio.file.Path oldWal = AppConfig.DATA_DIR.resolve("PasswordMaster.db-wal");
+                    java.nio.file.Path newWal = AppConfig.DATA_DIR.resolve("MimaVault.db-wal");
+                    if (java.nio.file.Files.exists(oldWal)) java.nio.file.Files.move(oldWal, newWal);
+                    java.nio.file.Path oldShm = AppConfig.DATA_DIR.resolve("PasswordMaster.db-shm");
+                    java.nio.file.Path newShm = AppConfig.DATA_DIR.resolve("MimaVault.db-shm");
+                    if (java.nio.file.Files.exists(oldShm)) java.nio.file.Files.move(oldShm, newShm);
+                }
+            } catch (Exception ignore) { /* 迁移失败则继续按新库路径运行 */ }
             if (!java.nio.file.Files.exists(AppConfig.DATA_DIR)) {
                 java.nio.file.Files.createDirectories(AppConfig.DATA_DIR);
             }

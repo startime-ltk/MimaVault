@@ -1,4 +1,4 @@
-# 密匣 MimaVault（password-master）
+# 密匣 MimaVault
 
 轻量化本地 PC 密码管理程序。Java 17 + Maven + Swing + SQLite + FlatLaf，数据全部本地存储、零联网。
 
@@ -43,8 +43,8 @@
 
 ```bash
 mvn package -DskipTests
-java -jar target/PasswordMaster.jar
+java -jar target/MimaVault.jar
 ```
 
-- 数据目录：运行目录下 `data/`（`data/PasswordMaster.db` 为 SQLite 数据库，`data/images/` 为图片附件）。
+- 数据目录：运行目录下 `data/`（`data/MimaVault.db` 为 SQLite 数据库，`data/images/` 为图片附件）。
 - 首次运行请在登录框设置主密码，请务必牢记；主密码丢失后数据无法恢复。

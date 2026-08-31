@@ -30,8 +30,8 @@ public class AppConfig {
     /** 配置文件路径 data/config.json */
     public static final Path CONFIG_FILE = DATA_DIR.resolve("config.json");
 
-    /** 数据库文件路径 data/PasswordMaster.db */
-    public static final Path DB_FILE = DATA_DIR.resolve("PasswordMaster.db");
+    /** 数据库文件路径 data/MimaVault.db（旧库 PasswordMaster.db 由 DatabaseManager 自动迁移） */
+    public static final Path DB_FILE = DATA_DIR.resolve("MimaVault.db");
 
     public static AppConfig load() {
         // 数据目录固定为运行目录下的 data/（见 DATA_DIR 常量），config.json 不再有生效字段；
