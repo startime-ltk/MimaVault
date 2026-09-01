@@ -1,7 +1,0 @@
-#Mon Aug 31 22:52:31 CST 2026
-base.0=F\:\\Java\\work\\MimaVault-Android\\app\\build\\intermediates\\dex\\release\\mergeDexRelease\\classes.dex
-base.1=F\:\\Java\\work\\MimaVault-Android\\app\\build\\intermediates\\dex\\release\\mergeDexRelease\\classes2.dex
-path.0=classes.dex
-path.1=classes2.dex
-renamed.0=classes.dex
-renamed.1=classes2.dex

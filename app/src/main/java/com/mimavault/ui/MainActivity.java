@@ -208,7 +208,7 @@ public class MainActivity extends AppCompatActivity {
                 for (int i = 0; i < categoryBar.getChildCount(); i++) {
                     TextView tv = (TextView) categoryBar.getChildAt(i);
                     boolean selected = tv.getTag().equals(currentCategory);
-                    tv.setTextColor(getColor(selected ? R.color.primary : R.color.text_secondary));
+                    tv.setTextColor(getColor(selected ? R.color.white : R.color.text_secondary));
                     tv.setBackgroundResource(selected ? R.drawable.bg_chip_selected : R.drawable.bg_chip);
                 }
                 reload();
@@ -216,7 +216,7 @@ public class MainActivity extends AppCompatActivity {
             categoryBar.addView(chip);
         }
         // 默认选中"全部"
-        ((TextView) categoryBar.getChildAt(0)).setTextColor(getColor(R.color.primary));
+        ((TextView) categoryBar.getChildAt(0)).setTextColor(getColor(R.color.white));
         ((TextView) categoryBar.getChildAt(0)).setBackgroundResource(R.drawable.bg_chip_selected);
     }
 
