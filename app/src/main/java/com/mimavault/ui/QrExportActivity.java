@@ -18,6 +18,7 @@ import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
 import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
+import com.mimavault.util.InsetsUtil;
 import com.mimavault.model.Entry;
 import com.mimavault.service.BackupService;
 import com.mimavault.service.VaultSession;
@@ -48,6 +49,7 @@ public class QrExportActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_qr_export);
+        InsetsUtil.applyTopInset(findViewById(R.id.rootQrExport));
         qrImage = findViewById(R.id.qrImage);
         tvPage = findViewById(R.id.tvQrPage);
         tvCount = findViewById(R.id.tvQrCount);

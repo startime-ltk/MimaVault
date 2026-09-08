@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
+import com.mimavault.util.InsetsUtil;
 import com.mimavault.model.Entry;
 import com.mimavault.util.PasswordGenerator;
 import com.mimavault.service.PasswordService;
@@ -79,6 +80,7 @@ public class EditEntryActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_edit_entry);
+        InsetsUtil.applyTopInset(findViewById(R.id.rootEditScroll));
         service = new PasswordService(MimaVaultApp.db());
         editId = getIntent().getLongExtra("id", -1);
 

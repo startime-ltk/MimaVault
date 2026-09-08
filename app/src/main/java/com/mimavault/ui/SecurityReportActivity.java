@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
+import com.mimavault.util.InsetsUtil;
 import com.mimavault.model.Entry;
 import com.mimavault.service.PasswordHealthChecker;
 import com.mimavault.service.PasswordService;
@@ -36,6 +37,7 @@ public class SecurityReportActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_security_report);
+        InsetsUtil.applyTopInset(findViewById(R.id.titleBarReport));
         service = new PasswordService(MimaVaultApp.db());
 
         TextView tvScore = findViewById(R.id.tvScore);

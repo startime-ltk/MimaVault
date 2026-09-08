@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
+import com.mimavault.util.InsetsUtil;
 import com.mimavault.model.Entry;
 import com.mimavault.service.PasswordService;
 import com.mimavault.service.VaultSession;
@@ -57,6 +58,7 @@ public class DetailActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_detail);
+        InsetsUtil.applyTopInset(findViewById(R.id.rootDetailScroll));
         service = new PasswordService(MimaVaultApp.db());
         long id = getIntent().getLongExtra("id", -1);
         entry = service.getById(id);

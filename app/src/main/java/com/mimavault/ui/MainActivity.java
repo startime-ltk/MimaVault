@@ -29,9 +29,12 @@ import com.mimavault.R;
 import com.mimavault.model.BackupModel;
 import com.mimavault.model.Entry;
 import com.mimavault.service.BackupService;
+import com.mimavault.service.GestureUnlockHelper;
 import com.mimavault.service.PasswordService;
 import com.mimavault.service.VaultSession;
 import com.mimavault.util.CsvUtil;
+import com.mimavault.util.GestureParser;
+import com.mimavault.util.InsetsUtil;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -49,6 +52,9 @@ public class MainActivity extends AppCompatActivity {
 
     private PasswordService service;
     private final Handler main = new Handler(Looper.getMainLooper());
+
+    /** 手势录入返回（设置 / 修改手势密码） */
+    private static final int REQ_GESTURE_LOGIN = 1002;
 
     private RecyclerView recycler;
     private TextView tvEmpty;
@@ -116,6 +122,9 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         service = new PasswordService(MimaVaultApp.db());
+
+        // 状态栏适配：渐变 Header 下移避开状态栏（背景向上延伸覆盖状态栏区域）
+        InsetsUtil.applyTopInset(findViewById(R.id.header));
 
         recycler = findViewById(R.id.recycler);
         tvEmpty = findViewById(R.id.tvEmpty);
@@ -228,51 +237,111 @@ public class MainActivity extends AppCompatActivity {
 
     private void showMenu(View anchor) {
         android.util.Log.i("MimaVault", "showMenu called");
-        String[] items = {
-                getString(R.string.export_menu),
-                getString(R.string.import_menu),
-                getString(R.string.export_csv),
-                getString(R.string.import_csv),
-                getString(R.string.qr_export),
-                getString(R.string.qr_import),
-                getString(R.string.security_report),
-                getString(R.string.trash),
-                getString(R.string.logout)
-        };
+        final List<String> labels = new ArrayList<>();
+        final List<Runnable> actions = new ArrayList<>();
+
+        labels.add(getString(R.string.export_menu));
+        actions.add(() -> fileExportLauncher.launch("MimaVault-" + System.currentTimeMillis() + ".pmaster"));
+        labels.add(getString(R.string.import_menu));
+        actions.add(() -> fileImportLauncher.launch(new String[]{"*/*"}));
+        labels.add(getString(R.string.export_csv));
+        actions.add(() -> fileCsvExportLauncher.launch("MimaVault-" + System.currentTimeMillis() + ".csv"));
+        labels.add(getString(R.string.import_csv));
+        actions.add(() -> fileCsvImportLauncher.launch(new String[]{"*/*"}));
+        labels.add(getString(R.string.qr_export));
+        actions.add(() -> QrExportActivity.start(this));
+        labels.add(getString(R.string.qr_import));
+        actions.add(() -> QrImportActivity.start(this));
+        labels.add(getString(R.string.security_report));
+        actions.add(() -> SecurityReportActivity.start(this));
+
+        // 手势密码（主密码为主、手势可选）：设置 / 修改前必须验证主密码
+        boolean gestureSet = GestureUnlockHelper.isGestureSet(this);
+        labels.add(getString(gestureSet ? R.string.gesture_menu_modify : R.string.gesture_menu_set));
+        actions.add(() -> verifyMasterThen(MainActivity.this::startGestureSetup));
+        if (gestureSet) {
+            labels.add(getString(R.string.gesture_clear_login));
+            actions.add(() -> verifyMasterThen(MainActivity.this::clearGestureUnlock));
+        }
+
+        labels.add(getString(R.string.trash));
+        actions.add(() -> TrashActivity.start(this));
+        labels.add(getString(R.string.logout));
+        actions.add(this::confirmLogout);
+
         new AlertDialog.Builder(this)
                 .setTitle(R.string.app_name)
-                .setItems(items, (d, which) -> {
-                    switch (which) {
-                        case 0:
-                            fileExportLauncher.launch("MimaVault-" + System.currentTimeMillis() + ".pmaster");
-                            break;
-                        case 1:
-                            fileImportLauncher.launch(new String[]{"*/*"});
-                            break;
-                        case 2:
-                            fileCsvExportLauncher.launch("MimaVault-" + System.currentTimeMillis() + ".csv");
-                            break;
-                        case 3:
-                            fileCsvImportLauncher.launch(new String[]{"*/*"});
-                            break;
-                        case 4:
-                            QrExportActivity.start(this);
-                            break;
-                        case 5:
-                            QrImportActivity.start(this);
-                            break;
-                        case 6:
-                            SecurityReportActivity.start(this);
-                            break;
-                        case 7:
-                            TrashActivity.start(this);
-                            break;
-                        case 8:
-                            confirmLogout();
-                            break;
-                    }
-                })
+                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
                 .show();
+    }
+
+    /** 设置 / 修改 / 清除手势密码统一入口：先弹主密码验证框，通过后才继续 */
+    private void verifyMasterThen(Runnable onVerified) {
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.gesture_verify_title)
+                .setMessage(R.string.gesture_verify_hint)
+                .setPositiveButton(R.string.gesture_verify_ok, null)
+                .setNegativeButton(R.string.cancel, null)
+                .create();
+        EditText et = new EditText(this);
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        et.setHint(R.string.master_password);
+        dialog.setView(et, dp(24), dp(8), dp(24), 0);
+        final boolean[] canceled = {false};
+        dialog.setOnDismissListener(d -> canceled[0] = true);
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String pwdStr = et.getText().toString();
+            if (pwdStr.isEmpty()) {
+                Toast.makeText(this, R.string.master_password, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            et.setEnabled(false);
+            new Thread(() -> {
+                char[] pwd = pwdStr.toCharArray();
+                PasswordService.VerifyResult result = service.verifyMasterPassword(pwd);
+                main.post(() -> {
+                    if (canceled[0]) {
+                        return;
+                    }
+                    if (result == PasswordService.VerifyResult.MISMATCH) {
+                        et.setEnabled(true);
+                        et.setText("");
+                        Toast.makeText(this, R.string.gesture_verify_failed, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    dialog.dismiss();
+                    onVerified.run();
+                });
+            }).start();
+        }));
+        dialog.show();
+    }
+
+    private void startGestureSetup() {
+        Intent i = new Intent(this, GestureActivity.class);
+        startActivityForResult(i, REQ_GESTURE_LOGIN);
+    }
+
+    private void clearGestureUnlock() {
+        GestureUnlockHelper.clear(this);
+        Toast.makeText(this, R.string.gesture_cleared, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_GESTURE_LOGIN && resultCode == RESULT_OK && data != null) {
+            String seq = data.getStringExtra(GestureActivity.EXTRA_SEQ);
+            if (seq == null || !GestureParser.valid(seq)) {
+                Toast.makeText(this, R.string.gesture_invalid, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            VaultSession session = VaultSession.get();
+            GestureUnlockHelper.setup(this, seq, session.key().getEncoded(),
+                    session.masterSaltHex(), session.iterations());
+            Toast.makeText(this, R.string.gesture_setup_success, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void doExport(Uri uri) {
@@ -302,24 +371,59 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "请使用主密码解锁后导入", Toast.LENGTH_LONG).show();
             return;
         }
+        // 先读取备份文件内容，再让用户输入该备份文件的主密码（跨密码导入）
+        new Thread(() -> {
+            String content;
+            try (InputStream is = getContentResolver().openInputStream(uri)) {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = is.read(buf)) != -1) {
+                    bos.write(buf, 0, n);
+                }
+                content = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                android.util.Log.e("MimaVault", "read import file failed", e);
+                main.post(() -> Toast.makeText(this, getString(R.string.import_failed, e.getMessage()), Toast.LENGTH_LONG).show());
+                return;
+            }
+            final String finalContent = content;
+            main.post(() -> showBackupPasswordDialog(finalContent));
+        }).start();
+    }
+
+    private void showBackupPasswordDialog(String content) {
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle(R.string.backup_password_title);
+        b.setMessage(R.string.backup_password_hint);
+        EditText et = new EditText(this);
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        et.setHint(R.string.backup_password_title);
+        b.setView(et);
+        b.setPositiveButton(R.string.import_ok, null);
+        b.setNegativeButton(R.string.cancel, null);
+        AlertDialog dialog = b.create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String backupPassword = et.getText().toString().trim();
+            if (backupPassword.isEmpty()) {
+                Toast.makeText(this, R.string.backup_password_empty, Toast.LENGTH_LONG).show();
+                return;
+            }
+            dialog.dismiss();
+            showImportModeDialog(content, backupPassword.toCharArray());
+        }));
+        dialog.show();
+    }
+
+    private void showImportModeDialog(String content, char[] backupPassword) {
         AlertDialog.Builder b = new AlertDialog.Builder(this);
         b.setTitle("导入 .pmaster");
         b.setItems(new String[]{getString(R.string.merge_import), getString(R.string.overwrite_import)}, (d, which) -> {
             boolean overwrite = which == 1;
             new Thread(() -> {
                 try {
-                    String content;
-                    try (InputStream is = getContentResolver().openInputStream(uri)) {
-                        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-                        byte[] buf = new byte[8192];
-                        int n;
-                        while ((n = is.read(buf)) != -1) {
-                            bos.write(buf, 0, n);
-                        }
-                        content = new String(bos.toByteArray(), StandardCharsets.UTF_8);
-                    }
                     BackupService.ImportResult result = BackupService.importFromContentDetailed(
-                            content, VaultSession.get().masterPasswordCopy(), VaultSession.get().key());
+                            content, backupPassword, VaultSession.get().key());
                     BackupModel.BackupPackage pack = result.pack;
                     android.util.Log.i("MimaVault", "importFromContent OK items=" + (pack.items == null ? 0 : pack.items.size()));
                     int[] stat = BackupService.restore(pack, service, overwrite, result.backupKey, VaultSession.get().key());

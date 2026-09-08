@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootUnlock"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_gradient"
@@ -132,6 +133,67 @@
             android:textColor="@color/primary"
             android:textSize="15sp"
             android:visibility="gone" 
+                app:backgroundTint="@null"/>
+
+        <Button
+            android:id="@+id/btnGestureUnlock"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_input"
+            android:text="@string/unlock_with_gesture"
+            android:textColor="@color/primary"
+            android:textSize="15sp"
+            android:visibility="gone" 
+                app:backgroundTint="@null"/>
+    </LinearLayout>
+
+    <!-- 手势解锁模式（主密码登录为默认主通道，设置手势后由此进入） -->
+    <LinearLayout
+        android:id="@+id/gestureUnlockBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_card"
+        android:orientation="vertical"
+        android:padding="22dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvGestureUnlockTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="@string/gesture_login_title"
+            android:textColor="@color/white"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvGestureUnlockHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:text="@string/gesture_login_hint"
+            android:textColor="#CCFFFFFF"
+            android:textSize="13sp" />
+
+        <com.mimavault.ui.GestureView
+            android:id="@+id/gestureVerifyView"
+            android:layout_width="260dp"
+            android:layout_height="260dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp" />
+
+        <Button
+            android:id="@+id/btnGestureBackPwd"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_input"
+            android:text="@string/gesture_use_password"
+            android:textColor="@color/primary"
+            android:textSize="15sp" 
                 app:backgroundTint="@null"/>
     </LinearLayout>
 

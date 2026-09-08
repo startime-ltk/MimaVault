@@ -8,6 +8,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.mimavault.R;
+import com.mimavault.util.InsetsUtil;
 import com.mimavault.util.GestureParser;
 
 /**
@@ -28,6 +29,7 @@ public class GestureActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_gesture);
+        InsetsUtil.applyTopInset(findViewById(R.id.rootGesture));
         initial = getIntent().getStringExtra(EXTRA_INITIAL);
         gestureView = findViewById(R.id.gestureView);
         tvHint = findViewById(R.id.tvGestureHint);

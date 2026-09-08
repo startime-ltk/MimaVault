@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">密匣 MimaVault</string>
     <string name="edit">编辑</string>
-    <string name="version_name">A8.31.1</string>
-    <string name="android_version">Android 版 · vA8.31.1</string>
+    <string name="version_name">A9.1.1</string>
+    <string name="android_version">Android 版 · vA9.1.1</string>
     <string name="label_platform">平台 / 网站</string>
     <string name="label_account">账号</string>
     <string name="label_password">密码</string>
@@ -63,6 +63,9 @@
     <string name="weak_password_remind">此密码强度较弱，建议更换</string>
     <string name="export_menu">导出 .pmaster</string>
     <string name="import_menu">导入 .pmaster</string>
+    <string name="backup_password_title">备份文件主密码</string>
+    <string name="backup_password_hint">请输入该 .pmaster 备份文件的主密码</string>
+    <string name="backup_password_empty">请输入备份文件主密码</string>
     <string name="qr_export">二维码导出</string>
     <string name="qr_import">二维码导入</string>
     <string name="logout">退出登录</string>
@@ -93,4 +96,23 @@
     <string name="csv_import_done">CSV 导入完成：成功 %1$d 条，失败 %2$d 条</string>
     <string name="security_summary">共检测 %1$d 条：弱口令 %2$d 条，重复 %3$d 条，疑似泄露 %4$d 条</string>
     <string name="security_no_issue">未发现问题，继续保持！</string>
+
+    <!-- 手势登录（主密码为主、手势可选） -->
+    <string name="unlock_with_gesture">手势解锁</string>
+    <string name="gesture_login_title">手势解锁</string>
+    <string name="gesture_login_hint">请绘制已设置的解锁手势</string>
+    <string name="gesture_use_password">使用主密码解锁</string>
+    <string name="gesture_wrong">手势错误，请重试</string>
+    <string name="gesture_wrong_left">手势错误，还可尝试 %1$d 次</string>
+    <string name="gesture_locked_hint">手势错误次数过多，请使用主密码解锁</string>
+    <string name="gesture_menu_set">设置手势密码</string>
+    <string name="gesture_menu_modify">修改手势密码</string>
+    <string name="gesture_clear_login">清除手势密码</string>
+    <string name="gesture_verify_title">验证主密码</string>
+    <string name="gesture_verify_hint">设置 / 修改手势前需验证主密码</string>
+    <string name="gesture_verify_ok">验证</string>
+    <string name="gesture_verify_failed">主密码错误，操作已取消</string>
+    <string name="gesture_setup_success">手势密码设置成功</string>
+    <string name="gesture_cleared">手势密码已清除</string>
+    <string name="gesture_invalid">手势序列无效</string>
 </resources>

@@ -17,6 +17,7 @@ import com.journeyapps.barcodescanner.ScanContract;
 import com.journeyapps.barcodescanner.ScanOptions;
 import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
+import com.mimavault.util.InsetsUtil;
 import com.mimavault.model.BackupModel;
 import com.mimavault.service.BackupService;
 import com.mimavault.service.PasswordService;
@@ -59,6 +60,7 @@ public class QrImportActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_qr_import);
+        InsetsUtil.applyTopInset(findViewById(R.id.rootQrImport));
         tvStatus = findViewById(R.id.tvQrImportStatus);
 
         findViewById(R.id.btnQrScan).setOnClickListener(v -> {
