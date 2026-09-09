@@ -29,6 +29,7 @@ import com.mimavault.R;
 import com.mimavault.model.BackupModel;
 import com.mimavault.model.Entry;
 import com.mimavault.service.BackupService;
+import com.mimavault.service.FaceUnlockHelper;
 import com.mimavault.service.GestureUnlockHelper;
 import com.mimavault.service.PasswordService;
 import com.mimavault.service.VaultSession;
@@ -327,6 +328,15 @@ public class MainActivity extends AppCompatActivity {
             actions.add(() -> verifyMasterThen(MainActivity.this::clearGestureUnlock));
         }
 
+        // 人脸解锁（OpenCV 摄像头方案，本地模板比对）：设置 / 重录 / 清除前均验证主密码
+        boolean faceSet = FaceUnlockHelper.isFaceSet(this);
+        labels.add(getString(faceSet ? R.string.face_menu_modify : R.string.face_menu_set));
+        actions.add(() -> verifyMasterThen(MainActivity.this::startFaceSetup));
+        if (faceSet) {
+            labels.add(getString(R.string.face_clear_login));
+            actions.add(() -> verifyMasterThen(MainActivity.this::clearFaceUnlock));
+        }
+
         labels.add(getString(R.string.trash));
         actions.add(() -> TrashActivity.start(this));
         labels.add(getString(R.string.logout));
@@ -386,9 +396,18 @@ public class MainActivity extends AppCompatActivity {
         startActivityForResult(i, REQ_GESTURE_LOGIN);
     }
 
+    private void startFaceSetup() {
+        FaceActivity.startRegister(this);
+    }
+
     private void clearGestureUnlock() {
         GestureUnlockHelper.clear(this);
         Toast.makeText(this, R.string.gesture_cleared, Toast.LENGTH_SHORT).show();
+    }
+
+    private void clearFaceUnlock() {
+        FaceUnlockHelper.clear(this);
+        Toast.makeText(this, R.string.face_cleared, Toast.LENGTH_SHORT).show();
     }
 
     @Override

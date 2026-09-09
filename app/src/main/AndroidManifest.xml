@@ -28,6 +28,7 @@
         <activity android:name=".ui.EditEntryActivity" android:exported="false" />
         <activity android:name=".ui.DetailActivity" android:exported="false" />
         <activity android:name=".ui.GestureActivity" android:exported="false" />
+        <activity android:name=".ui.FaceActivity" android:exported="false" />
         <activity android:name=".ui.QrExportActivity" android:exported="false" />
         <activity android:name=".ui.QrImportActivity" android:exported="false" />
         <activity android:name=".ui.TrashActivity" android:exported="false" />

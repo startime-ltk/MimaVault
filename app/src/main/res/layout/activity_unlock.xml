@@ -146,6 +146,18 @@
             android:textSize="15sp"
             android:visibility="gone" 
                 app:backgroundTint="@null"/>
+
+        <Button
+            android:id="@+id/btnFaceUnlock"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_input"
+            android:text="@string/unlock_with_face"
+            android:textColor="@color/primary"
+            android:textSize="15sp"
+            android:visibility="gone" 
+                app:backgroundTint="@null"/>
     </LinearLayout>
 
     <!-- 手势解锁模式（主密码登录为默认主通道，设置手势后由此进入） -->

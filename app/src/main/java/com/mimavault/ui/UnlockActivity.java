@@ -1,5 +1,6 @@
 package com.mimavault.ui;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -19,6 +20,7 @@ import androidx.core.content.ContextCompat;
 import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
 import com.mimavault.service.BiometricHelper;
+import com.mimavault.service.FaceUnlockHelper;
 import com.mimavault.service.GestureUnlockHelper;
 import com.mimavault.service.PasswordService;
 import com.mimavault.service.VaultSession;
@@ -32,10 +34,12 @@ import javax.crypto.SecretKey;
 /**
  * 解锁 / 首次设置主密码
  * 支持：主密码（PBKDF2 验证，默认主通道）、手势密码（可选，已设置时提供入口）、
- *       指纹/面部（Android Keystore + BiometricPrompt）
+ *       人脸解锁（可选，OpenCV 摄像头模板比对，已设置时提供入口）、
+ *       指纹/面部（Android Keystore + BiometricPrompt，系统级）
  */
 public class UnlockActivity extends AppCompatActivity {
 
+    private static final int REQ_FACE_UNLOCK = 3001;
     private PasswordService service;
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -48,6 +52,7 @@ public class UnlockActivity extends AppCompatActivity {
     private Button btnUnlock;
     private Button btnBiometric;
     private Button btnGestureUnlock;
+    private Button btnFaceUnlock;
     private LinearLayout gestureUnlockBox;
     private GestureView gestureVerifyView;
     private Button btnGestureBackPwd;
@@ -71,6 +76,7 @@ public class UnlockActivity extends AppCompatActivity {
         btnUnlock = findViewById(R.id.btnUnlock);
         btnBiometric = findViewById(R.id.btnBiometric);
         btnGestureUnlock = findViewById(R.id.btnGestureUnlock);
+        btnFaceUnlock = findViewById(R.id.btnFaceUnlock);
         gestureUnlockBox = findViewById(R.id.gestureUnlockBox);
         gestureVerifyView = findViewById(R.id.gestureVerifyView);
         btnGestureBackPwd = findViewById(R.id.btnGestureBackPwd);
@@ -145,6 +151,18 @@ public class UnlockActivity extends AppCompatActivity {
             btnGestureUnlock.setOnClickListener(v -> showGestureMode());
         } else {
             btnGestureUnlock.setVisibility(View.GONE);
+        }
+
+        // 人脸解锁为可选登录通道（OpenCV 摄像头方案）：已设置且未锁定时提供入口
+        if (FaceUnlockHelper.isFaceSet(this) && !FaceUnlockHelper.isLocked(this)) {
+            btnFaceUnlock.setVisibility(View.VISIBLE);
+            btnFaceUnlock.setOnClickListener(v -> {
+                Intent i = new Intent(UnlockActivity.this, FaceActivity.class);
+                i.putExtra(FaceActivity.EXTRA_MODE, FaceActivity.MODE_UNLOCK);
+                startActivityForResult(i, REQ_FACE_UNLOCK);
+            });
+        } else {
+            btnFaceUnlock.setVisibility(View.GONE);
         }
     }
 
@@ -298,5 +316,20 @@ public class UnlockActivity extends AppCompatActivity {
     private void enterMain() {
         MainActivity.start(this);
         finish();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_FACE_UNLOCK && resultCode == RESULT_OK) {
+            FaceUnlockHelper.FaceRecord rec = FaceUnlockHelper.load(this);
+            if (rec == null) {
+                Toast.makeText(this, R.string.face_data_missing, Toast.LENGTH_LONG).show();
+                return;
+            }
+            VaultSession.get().open(new char[0], rec.key, rec.saltHex, rec.iterations);
+            GestureUnlockHelper.resetFails(this);
+            enterMain();
+        }
     }
 }
