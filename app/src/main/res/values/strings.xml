@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">密匣 MimaVault</string>
     <string name="edit">编辑</string>
-    <string name="version_name">A9.9.2</string>
-    <string name="android_version">Android 版 · vA9.9.3</string>
+    <string name="version_name">A9.9.5</string>
+    <string name="android_version">Android 版 · vA9.9.5</string>
     <string name="label_platform">平台 / 网站</string>
     <string name="label_account">账号</string>
     <string name="label_password">密码</string>
@@ -115,4 +115,31 @@
     <string name="gesture_setup_success">手势密码设置成功</string>
     <string name="gesture_cleared">手势密码已清除</string>
     <string name="gesture_invalid">手势序列无效</string>
+
+    <!-- 人脸解锁（OpenCV 摄像头方案） -->
+    <string name="unlock_with_face">人脸解锁</string>
+    <string name="face_menu_set">设置人脸解锁</string>
+    <string name="face_menu_modify">重录人脸</string>
+    <string name="face_clear_login">清除人脸解锁</string>
+    <string name="face_verify_title">验证主密码</string>
+    <string name="face_verify_hint">设置 / 重录人脸前需验证主密码</string>
+    <string name="face_setup_success">人脸解锁设置成功</string>
+    <string name="face_cleared">人脸解锁已清除</string>
+    <string name="face_engine_fail">人脸引擎初始化失败</string>
+    <string name="face_data_missing">人脸数据缺失或已失效，请使用主密码解锁</string>
+    <string name="face_camera_permission">需要相机权限才能使用人脸解锁</string>
+    <string name="face_camera_fail">摄像头启动失败</string>
+    <string name="face_register_wait">正对屏幕，将脸部放入框内</string>
+    <string name="face_register_sharp">画面模糊或过暗，请调整光线</string>
+    <string name="face_register_hold">检测到人脸，保持姿势…</string>
+    <string name="face_register_ok">人脸已录入，正在保存…</string>
+    <string name="face_saved">人脸解锁设置成功</string>
+    <string name="face_session_closed">会话未打开，无法保存人脸</string>
+    <string name="face_unlock_wait">正对屏幕进行人脸识别…</string>
+    <string name="face_unlock_matching">比对中… %1$d%%</string>
+    <string name="face_unlock_no_match">未能匹配(%1$d%%)，请调整光线与角度</string>
+    <string name="face_process_fail">图像处理失败，请重试</string>
+    <string name="face_use_password">返回，使用其他方式解锁</string>
+    <string name="face_action_back">取消</string>
+    <string name="face_locked_hint">人脸比对失败次数过多，请使用主密码解锁</string>
 </resources>
