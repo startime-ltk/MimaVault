@@ -101,13 +101,28 @@
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="0dp"
         android:clipToPadding="false"
         android:paddingTop="6dp"
         android:paddingBottom="90dp"
+        android:paddingEnd="4dp"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/letterBar"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/header" />
+
+    <!-- 字母索引条：初始 invisible（保留布局占位，避免 gone 使 RecyclerView 宽度回弹覆盖触摸）；
+         声明在 RecyclerView 之后，保证 z 序高于列表，触摸与绘制优先 -->
+    <com.mimavault.ui.LetterIndexBar
+        android:id="@+id/letterBar"
+        android:layout_width="44dp"
+        android:layout_height="0dp"
+        android:layout_marginBottom="92dp"
+        android:visibility="invisible"
+        app:layout_constraintBottom_toBottomOf="@id/recycler"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/recycler" />
 
     <TextView
         android:id="@+id/tvEmpty"

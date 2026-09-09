@@ -43,7 +43,9 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 主界面：条目列表、模糊搜索、分类筛选、导入/导出、二维码互导入口
@@ -62,6 +64,9 @@ public class MainActivity extends AppCompatActivity {
     private EntryAdapter adapter;
     private FloatingActionButton fabAdd;
     private LinearLayout categoryBar;
+    private LetterIndexBar letterBar;
+    /** 手指在索引条上滑动时抑制列表滚动联动，避免高亮闪烁 */
+    private boolean suppressIndexSync = false;
 
     private String currentKeyword = "";
     private String currentCategory = "全部";
@@ -131,6 +136,7 @@ public class MainActivity extends AppCompatActivity {
         etSearch = findViewById(R.id.etSearch);
         fabAdd = findViewById(R.id.fabAdd);
         categoryBar = findViewById(R.id.categoryBar);
+        letterBar = findViewById(R.id.letterBar);
         findViewById(R.id.btnMenu).setOnClickListener(v -> {
             android.util.Log.i("MimaVault", "btnMenu clicked");
             showMenu(v);
@@ -153,6 +159,29 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         recycler.setAdapter(adapter);
+
+        // 字母索引条：点击 / 滑动跳转到对应分组
+        letterBar.setListener(new LetterIndexBar.Listener() {
+            @Override
+            public void onLetterSelected(String letter) {
+                jumpToLetter(letter);
+            }
+
+            @Override
+            public void onTouchEnd() {
+                suppressIndexSync = false;
+                syncActiveLetterFromList();
+            }
+        });
+        // 列表滚动时联动索引条高亮当前组
+        recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@androidx.annotation.NonNull RecyclerView rv, int dx, int dy) {
+                if (!suppressIndexSync) {
+                    syncActiveLetterFromList();
+                }
+            }
+        });
 
         fabAdd.setOnClickListener(v -> EditEntryActivity.start(this, -1));
         buildCategoryBar();
@@ -231,8 +260,42 @@ public class MainActivity extends AppCompatActivity {
 
     private void reload() {
         List<Entry> list = service.search(currentKeyword, currentCategory);
-        adapter.setData(list);
+        adapter.setGroupedData(list);
         tvEmpty.setVisibility(list.isEmpty() ? View.VISIBLE : View.GONE);
+        updateLetterBar();
+    }
+
+    /** 列表数据变化后刷新索引条的可见性与字母集合 */
+    private void updateLetterBar() {
+        List<String> letters = adapter.availableLetters();
+        if (letters == null || letters.isEmpty()) {
+            letterBar.setVisibility(View.GONE);
+            return;
+        }
+        letterBar.setVisibility(View.VISIBLE);
+        letterBar.setAvailableLetters(new HashSet<>(letters));
+        syncActiveLetterFromList();
+    }
+
+    /** 点击 / 滑动索引条字母：跳到该字母组（不存在则跳到其后最近组） */
+    private void jumpToLetter(String letter) {
+        Integer pos = adapter.positionOfLetterOrNext(letter);
+        if (pos == null) {
+            return;
+        }
+        suppressIndexSync = true;
+        letterBar.setActiveLetter(letter);
+        ((LinearLayoutManager) recycler.getLayoutManager()).scrollToPositionWithOffset(pos, 0);
+    }
+
+    /** 依据列表首个可见项同步索引条高亮字母 */
+    private void syncActiveLetterFromList() {
+        if (recycler.getLayoutManager() == null) {
+            return;
+        }
+        int first = ((LinearLayoutManager) recycler.getLayoutManager()).findFirstVisibleItemPosition();
+        String letter = adapter.letterAt(first);
+        letterBar.setActiveLetter(letter);
     }
 
     private void showMenu(View anchor) {

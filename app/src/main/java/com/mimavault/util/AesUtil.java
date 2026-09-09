@@ -15,8 +15,9 @@ import java.util.Base64;
  * AES-256-GCM 加解密工具
  *
  * 密钥派生：
- * - 新版：PBKDF2WithHmacSHA256（盐 16 字节，迭代 600000，输出 256 位），
- *   盐+哈希存储格式为 pbkdf2$迭代次数$盐hex$哈希hex（settings.master_hash）
+ * - 新版：PBKDF2WithHmacSHA256（盐 16 字节，当前档位迭代 210000，输出 256 位），
+ *   盐+哈希存储格式为 pbkdf2$迭代次数$盐hex$哈希hex（settings.master_hash），
+ *   迭代次数自描述：旧库 600000 可正常验证，解锁后自动迁移至当前档位
  * - 旧版（兼容迁移）：主密码直接 SHA-256 派生（仅用于旧数据一次性迁移）
  *
  * GCM 模式自带完整性校验，密文格式：Base64(iv + ciphertext)
@@ -30,7 +31,10 @@ public final class AesUtil {
 
     public static final String PBKDF2_ALGO = "PBKDF2WithHmacSHA256";
     public static final int PBKDF2_SALT_LENGTH = 16;   // 盐 16 字节
-    public static final int PBKDF2_ITERATIONS = 600000; // 慢哈希迭代次数
+    // 登录耗时优化：600000 -> 210000（OWASP 2021 推荐档）
+    // 兼容性：record 为自描述格式(pbkdf2$iter$salt$hash)，老库 600k 仍可正常验证，
+    // 解锁成功后由 PasswordService 自动迁移重加密至本档位（首次慢一次，之后提速约 2~3 倍）。
+    public static final int PBKDF2_ITERATIONS = 210000; // 慢哈希迭代次数
     public static final int PBKDF2_KEY_LENGTH = 256;    // 输出 256 位
     public static final String PBKDF2_PREFIX = "pbkdf2$";
 

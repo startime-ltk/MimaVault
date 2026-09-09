@@ -46,7 +46,12 @@ public class PasswordService {
             boolean ok = stored.equalsIgnoreCase(AesUtil.sha256Hex(new String(masterPassword)));
             return ok ? VerifyResult.MATCH_NEED_UPGRADE : VerifyResult.MISMATCH;
         }
-        return AesUtil.verifyPassword(masterPassword, stored) ? VerifyResult.MATCH : VerifyResult.MISMATCH;
+        if (!AesUtil.verifyPassword(masterPassword, stored)) {
+            return VerifyResult.MISMATCH;
+        }
+        // 登录耗时优化：老库(600k 等更高档位)验证通过后触发一次性迁移至当前档位(210k)
+        int storedIter = AesUtil.iterationsFromRecord(stored);
+        return storedIter > AesUtil.PBKDF2_ITERATIONS ? VerifyResult.MATCH_NEED_UPGRADE : VerifyResult.MATCH;
     }
 
     public SecretKey deriveKey(char[] masterPassword) {
@@ -81,13 +86,18 @@ public class PasswordService {
         return AesUtil.iterationsFromRecord(stored);
     }
 
-    /** 一次性迁移：旧 SHA-256 -> PBKDF2（先预检再写库） */
+    /** 一次性迁移至当前 PBKDF2 档位（先预检再写库）。
+     *  兼容两种来源：旧 SHA-256 库、旧高迭代(600k)PBKDF2 库。
+     *  条目加密密钥随主密钥档位变化，须用旧钥解密后用新钥重加密，故降档与升档同路径处理。 */
     public void upgradeToPbkdf2(char[] masterPassword) {
         String stored = db.getMasterHash();
-        if (stored == null || !AesUtil.isLegacyRecord(stored)) {
+        if (stored == null) {
             return;
         }
-        SecretKey oldKey = AesUtil.deriveKey(new String(masterPassword));
+        if (!AesUtil.isLegacyRecord(stored) && AesUtil.iterationsFromRecord(stored) <= AesUtil.PBKDF2_ITERATIONS) {
+            return;
+        }
+        SecretKey oldKey = deriveKey(masterPassword);
         byte[] salt = AesUtil.generateSalt();
         SecretKey newKey = AesUtil.deriveKeyPbkdf2(masterPassword, salt, AesUtil.PBKDF2_ITERATIONS);
 
