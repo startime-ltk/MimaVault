@@ -33,7 +33,14 @@ public class ImportConfirmDialog extends JDialog {
         for (Entry e : entries) {
             String pwd = "";
             if (e.getPasswordEnc() != null && !e.getPasswordEnc().isEmpty()) {
-                String plain = key == null ? null : AesUtil.decrypt(e.getPasswordEnc(), key);
+                String plain = null;
+                if (key != null) {
+                    try {
+                        plain = AesUtil.decrypt(e.getPasswordEnc(), key);
+                    } catch (Exception ignored) {
+                        plain = null; // 解不开时按「已加密」展示，避免对话框中断
+                    }
+                }
                 pwd = plain == null ? "（已加密）" : plain;
             }
             model.addRow(new Object[]{

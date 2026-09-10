@@ -114,11 +114,14 @@ public class EntryEditDialog extends JDialog {
         gestureLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
         pwdPanel.add(gestureBtn);
         pwdPanel.add(clearGestureBtn);
-        // 密码生成器：生成随机密码填入文本框，同时复制到剪贴板并弹提示；可反复点击重新生成
-        GradientButton genPwdBtn = GradientButton.secondary("生成随机密码");
-        genPwdBtn.setToolTipText("生成随机密码（16位）并复制到剪贴板，可再次点击重新生成");
+        // 密码生成器：打开生成器对话框（随机密码 / 口令短语，可排除易混淆字符、自定义字符集），确认后填入并复制
+        GradientButton genPwdBtn = GradientButton.secondary("打开密码生成器");
+        genPwdBtn.setToolTipText("随机密码（可排除易混淆字符、自定义字符集）或口令短语（本地词表），确认后填入并复制到剪贴板");
         genPwdBtn.addActionListener(e -> {
-            String pwd = PasswordGenerator.generatePassword();
+            String pwd = PasswordGeneratorDialog.showDialog(EntryEditDialog.this, "密码生成器");
+            if (pwd == null || pwd.isEmpty()) {
+                return;
+            }
             passwordField.setText(pwd);
             ClipboardSafe.copySecret(pwd);
             Toast.show(EntryEditDialog.this, "已生成密码并复制到剪贴板");

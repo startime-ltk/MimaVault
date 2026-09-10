@@ -39,6 +39,8 @@ public class EntryDetailDialog extends JDialog {
     private Timer hintTimer;
     private String plainPassword = null;
     private boolean showPassword = false;
+    /** 本次打开详情期间是否改动过条目（编辑保存 / 恢复历史版本），供主界面决定是否刷新 */
+    private boolean changed = false;
 
     public EntryDetailDialog(Window owner, Entry entry, PasswordService service, SecretKey key) {
         super(owner, "条目详情 - " + nullToEmpty(entry.getPlatform()), ModalityType.APPLICATION_MODAL);
@@ -123,9 +125,13 @@ public class EntryDetailDialog extends JDialog {
         copyHint.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
         copyHint.setForeground(new Color(46, 139, 87));
         bottom.add(copyHint, BorderLayout.WEST);
-        // 底部按钮：编辑 + 关闭
+        // 底部按钮：历史版本 + 编辑 + 关闭
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         btnPanel.setOpaque(false);
+        GradientButton historyBtn = GradientButton.secondary("历史版本");
+        historyBtn.setToolTipText("查看该条目的历史密码，可恢复到任意历史版本");
+        historyBtn.addActionListener(e -> onHistory());
+        btnPanel.add(historyBtn);
         GradientButton editBtn = GradientButton.primary("编辑");
         editBtn.addActionListener(e -> onEdit());
         btnPanel.add(editBtn);
@@ -146,8 +152,24 @@ public class EntryDetailDialog extends JDialog {
         dlg.setVisible(true);
         if (dlg.isSaved()) {
             service.updateEntry(dlg.getEntry(), dlg.getPlainPassword(), key, dlg.isKeepOldPassword());
+            changed = true;
             refreshFromEntry();
         }
+    }
+
+    /** 打开历史版本对话框：可查看/复制/恢复改密前的旧密码，恢复后同步刷新详情 */
+    private void onHistory() {
+        PasswordHistoryDialog dlg = new PasswordHistoryDialog(this, entry, service, key);
+        dlg.setVisible(true);
+        if (dlg.isRestored()) {
+            changed = true;
+            refreshFromEntry();
+        }
+    }
+
+    /** 本次打开期间条目是否被改动（编辑保存或恢复历史版本） */
+    public boolean isChanged() {
+        return changed;
     }
 
     /** 编辑保存后刷新详情界面（entry 为同一对象引用，字段已就地更新；密码重新解密） */

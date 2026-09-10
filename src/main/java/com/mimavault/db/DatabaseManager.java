@@ -2,9 +2,11 @@ package com.mimavault.db;
 
 import com.mimavault.config.AppConfig;
 import com.mimavault.model.Entry;
+import com.mimavault.model.PasswordHistoryItem;
 
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -66,6 +68,13 @@ public class DatabaseManager {
                         + "updated_at INTEGER)");
                 stmt.executeUpdate("CREATE INDEX IF NOT EXISTS idx_entries_platform ON entries(platform)");
                 stmt.executeUpdate("CREATE INDEX IF NOT EXISTS idx_entries_category ON entries(category)");
+                // 密码历史版本表：改密前的旧密码（密文存储），与 entries 解耦，旧库升级仅新增该表
+                stmt.executeUpdate("CREATE TABLE IF NOT EXISTS password_history ("
+                        + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                        + "entry_id INTEGER NOT NULL,"
+                        + "password_enc TEXT,"
+                        + "changed_at INTEGER)");
+                stmt.executeUpdate("CREATE INDEX IF NOT EXISTS idx_pwd_history_entry ON password_history(entry_id)");
             }
             // 兼容旧库：检测缺失列并补齐
             ensureColumn("entries", "category", "TEXT DEFAULT '网站'");
@@ -230,7 +239,7 @@ public class DatabaseManager {
         }
     }
 
-    /** 彻底删除回收站中的单条条目 */
+    /** 彻底删除回收站中的单条条目（连带清理其密码历史） */
     public void purgeEntry(long id) {
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement("DELETE FROM entries WHERE id=? AND deleted_at IS NOT NULL")) {
@@ -239,12 +248,15 @@ public class DatabaseManager {
         } catch (SQLException ex) {
             throw new IllegalStateException("彻底删除失败", ex);
         }
+        deletePasswordHistory(id);
     }
 
-    /** 清空回收站：物理删除所有已标记删除的条目 */
+    /** 清空回收站：物理删除所有已标记删除的条目（连带清理其密码历史） */
     public void purgeAllTrashed() {
         try (Connection conn = connect();
              Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate("DELETE FROM password_history WHERE entry_id IN "
+                    + "(SELECT id FROM entries WHERE deleted_at IS NOT NULL)");
             stmt.executeUpdate("DELETE FROM entries WHERE deleted_at IS NOT NULL");
         } catch (SQLException e) {
             throw new IllegalStateException("清空回收站失败", e);
@@ -338,10 +350,11 @@ public class DatabaseManager {
         return null;
     }
 
-    /** 清空全部条目（导入覆盖模式使用） */
+    /** 清空全部条目（导入覆盖模式使用，连带清理密码历史） */
     public void clearEntries() {
         try (Connection conn = connect();
              Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate("DELETE FROM password_history");
             stmt.executeUpdate("DELETE FROM entries");
         } catch (SQLException e) {
             throw new IllegalStateException("清空条目失败", e);
@@ -378,6 +391,145 @@ public class DatabaseManager {
             }
         } catch (SQLException e) {
             throw new IllegalStateException("批量导入失败", e);
+        }
+    }
+
+    // ---------- 密码历史版本 ----------
+
+    /** 写入一条历史密码（加密串），返回新记录 id */
+    public long insertPasswordHistory(long entryId, String passwordEnc) {
+        String sql = "INSERT INTO password_history (entry_id, password_enc, changed_at) VALUES (?,?,?)";
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setLong(1, entryId);
+            ps.setString(2, passwordEnc);
+            ps.setLong(3, System.currentTimeMillis());
+            ps.executeUpdate();
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                if (keys.next()) {
+                    return keys.getLong(1);
+                }
+            }
+            return -1;
+        } catch (SQLException e) {
+            throw new IllegalStateException("写入密码历史失败", e);
+        }
+    }
+
+    /** 查询某条目的历史密码（按时间倒序，最新在前） */
+    public List<PasswordHistoryItem> listPasswordHistory(long entryId) {
+        List<PasswordHistoryItem> list = new ArrayList<>();
+        String sql = "SELECT id, entry_id, password_enc, changed_at FROM password_history "
+                + "WHERE entry_id=? ORDER BY changed_at DESC, id DESC";
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, entryId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    PasswordHistoryItem it = new PasswordHistoryItem();
+                    it.setId(rs.getLong("id"));
+                    it.setEntryId(rs.getLong("entry_id"));
+                    it.setPasswordEnc(rs.getString("password_enc"));
+                    long t = rs.getLong("changed_at");
+                    if (t > 0) {
+                        it.setChangedAt(new Date(t));
+                    }
+                    list.add(it);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("查询密码历史失败", e);
+        }
+        return list;
+    }
+
+    /** 查询全部历史密码记录（改主密码时需整体重加密） */
+    public List<PasswordHistoryItem> listAllPasswordHistory() {
+        List<PasswordHistoryItem> list = new ArrayList<>();
+        String sql = "SELECT id, entry_id, password_enc, changed_at FROM password_history ORDER BY id";
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                PasswordHistoryItem it = new PasswordHistoryItem();
+                it.setId(rs.getLong("id"));
+                it.setEntryId(rs.getLong("entry_id"));
+                it.setPasswordEnc(rs.getString("password_enc"));
+                long t = rs.getLong("changed_at");
+                if (t > 0) {
+                    it.setChangedAt(new Date(t));
+                }
+                list.add(it);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("查询密码历史失败", e);
+        }
+        return list;
+    }
+
+    /** 更新单条历史记录的密文（改主密码重加密使用） */
+    public void updatePasswordHistoryEnc(long historyId, String passwordEnc) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement("UPDATE password_history SET password_enc=? WHERE id=?")) {
+            ps.setString(1, passwordEnc);
+            ps.setLong(2, historyId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("更新密码历史失败", e);
+        }
+    }
+
+    /** 某条目的历史密码条数 */
+    public int countPasswordHistory(long entryId) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) FROM password_history WHERE entry_id=?")) {
+            ps.setLong(1, entryId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("统计密码历史失败", e);
+        }
+        return 0;
+    }
+
+    /** 超出保留上限时裁剪最旧的历史记录（仅保留最新 keep 条） */
+    public void trimPasswordHistory(long entryId, int keep) {
+        String sql = "DELETE FROM password_history WHERE entry_id=? AND id NOT IN "
+                + "(SELECT id FROM password_history WHERE entry_id=? "
+                + "ORDER BY changed_at DESC, id DESC LIMIT ?)";
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, entryId);
+            ps.setLong(2, entryId);
+            ps.setInt(3, Math.max(0, keep));
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("裁剪密码历史失败", e);
+        }
+    }
+
+    /** 删除某条目的全部历史 */
+    public void deletePasswordHistory(long entryId) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM password_history WHERE entry_id=?")) {
+            ps.setLong(1, entryId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("删除密码历史失败", e);
+        }
+    }
+
+    /** 删除单条历史记录 */
+    public void deletePasswordHistoryById(long historyId) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM password_history WHERE id=?")) {
+            ps.setLong(1, historyId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("删除密码历史失败", e);
         }
     }
 

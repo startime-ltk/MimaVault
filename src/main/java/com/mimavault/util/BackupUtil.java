@@ -96,12 +96,21 @@ public final class BackupUtil {
      * @param currentKey    当前库主密码派生密钥（可传 null，跳过通道2）
      */
     public static BackupPackage importBackup(Path source, char[] masterPassword, SecretKey currentKey) throws IOException {
+        return importBackupDetailed(source, masterPassword, currentKey).pack;
+    }
+
+    /**
+     * 从 .pmaster 读取并解密（多通道），返回备份包与解密实际使用的密钥（backupKey）。
+     * 通道顺序与 importBackup 一致：① header PBKDF2 → ② 当前库密钥 → ③ 旧版 SHA-256。
+     * backupKey 供调用方对条目密码做「备份密钥解密 → 当前库密钥重加密」，实现跨库/跨密码导入。
+     */
+    public static ImportResult importBackupDetailed(Path source, char[] masterPassword, SecretKey currentKey) throws IOException {
         String content = Files.readString(source, StandardCharsets.UTF_8).trim();
 
         // 通道1：带 header 的新格式 → header 内盐/迭代次数 PBKDF2 派生
         if (content.startsWith(HEADER_PREFIX)) {
             try {
-                return decryptWithHeader(content, masterPassword);
+                return decryptWithHeaderDetailed(content, masterPassword);
             } catch (Exception ignored) {
                 // 继续尝试后续通道（密码错误或 header 损坏）
             }
@@ -110,7 +119,7 @@ public final class BackupUtil {
         // 通道2：当前库密钥（服务端 deriveKey，新库 PBKDF2 / 旧库 SHA-256）
         if (currentKey != null) {
             try {
-                return decryptPackage(content, currentKey);
+                return new ImportResult(decryptPackage(content, currentKey), currentKey);
             } catch (Exception ignored) {
                 // 继续尝试
             }
@@ -120,7 +129,7 @@ public final class BackupUtil {
         char[] copy = masterPassword.clone();
         try {
             SecretKey legacyKey = AesUtil.deriveKey(new String(copy));
-            return decryptPackage(content, legacyKey);
+            return new ImportResult(decryptPackage(content, legacyKey), legacyKey);
         } finally {
             java.util.Arrays.fill(copy, '\0');
         }
@@ -135,8 +144,27 @@ public final class BackupUtil {
         return decryptPackage(content, key);
     }
 
+    /**
+     * 导入结果：解密后的备份包 + 实际解密所用的密钥（backupKey）
+     * backupKey 用于对条目密码做「备份密钥解密 → 当前库密钥重加密」
+     */
+    public static class ImportResult {
+        public final BackupPackage pack;
+        public final SecretKey backupKey;
+
+        public ImportResult(BackupPackage pack, SecretKey backupKey) {
+            this.pack = pack;
+            this.backupKey = backupKey;
+        }
+    }
+
     /** 解析 v2 header（MimaVault1$盐hex$迭代次数$Base64密文）并用 header 参数 PBKDF2 派生密钥解密 */
     private static BackupPackage decryptWithHeader(String content, char[] masterPassword) {
+        return decryptWithHeaderDetailed(content, masterPassword).pack;
+    }
+
+    /** 解析 v2 header（MimaVault1$盐hex$迭代次数$Base64密文）并用 header 参数 PBKDF2 派生密钥解密，返回密钥 */
+    private static ImportResult decryptWithHeaderDetailed(String content, char[] masterPassword) {
         String[] parts = content.split("\\$", 4);
         if (parts.length != 4 || !(parts[0] + "$").equals(HEADER_PREFIX)) {
             throw new IllegalStateException("备份文件 header 格式不正确");
@@ -144,7 +172,7 @@ public final class BackupUtil {
         byte[] salt = AesUtil.hexToBytes(parts[1]);
         int iterations = Integer.parseInt(parts[2]);
         SecretKey key = AesUtil.deriveKeyPbkdf2(masterPassword, salt, iterations);
-        return decryptPackage(parts[3], key);
+        return new ImportResult(decryptPackage(parts[3], key), key);
     }
 
     /** 解密纯 Base64 密文内容并解析备份包 */

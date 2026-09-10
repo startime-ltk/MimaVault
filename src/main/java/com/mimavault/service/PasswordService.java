@@ -2,9 +2,11 @@ package com.mimavault.service;
 
 import com.mimavault.db.DatabaseManager;
 import com.mimavault.model.Entry;
+import com.mimavault.model.PasswordHistoryItem;
 import com.mimavault.util.AesUtil;
 
 import javax.crypto.SecretKey;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -26,6 +28,9 @@ public class PasswordService {
     }
 
     private final DatabaseManager db;
+
+    /** 单条目密码历史保留上限（与安卓端 A9.9.16 保持一致） */
+    public static final int MAX_PASSWORD_HISTORY = 20;
 
     public PasswordService(DatabaseManager db) {
         this.db = db;
@@ -199,6 +204,20 @@ public class PasswordService {
             db.updateEntry(e);
         }
 
+        // 4.5 历史密码密文同步重加密（历史与条目同源同钥，不改则改主密码后历史将无法解密）
+        for (PasswordHistoryItem h : db.listAllPasswordHistory()) {
+            String enc = h.getPasswordEnc();
+            if (enc == null || enc.isEmpty()) {
+                continue;
+            }
+            try {
+                String plain = AesUtil.decrypt(enc, oldKey);
+                db.updatePasswordHistoryEnc(h.getId(), AesUtil.encrypt(plain, newKey));
+            } catch (Exception ignore) {
+                // 更早版本遗留的、无法用当前密钥解密的历史记录：跳过，不阻塞主流程
+            }
+        }
+
         // 5. 更新主密码哈希（最后一步，失败时旧数据仍可用旧密码打开）
         db.saveMasterHash(AesUtil.buildPbkdf2Record(newPassword, salt, AesUtil.PBKDF2_ITERATIONS));
         return newKey;
@@ -212,12 +231,72 @@ public class PasswordService {
         return db.insertEntry(entry);
     }
 
-    /** 更新条目（plainPassword 为空则保留原加密值） */
+    /**
+     * 更新条目。keepPassword 为 false 时写入新密码，并把改密前的旧密码留档到历史表，
+     * 供后续回溯查看与一键恢复（历史同样为密文存储，明文不落盘）。
+     */
     public void updateEntry(Entry entry, String plainPassword, SecretKey key, boolean keepPassword) {
         if (!keepPassword) {
-            entry.setPasswordEnc(encryptOrNull(plainPassword, key));
+            String oldEnc = entry.getPasswordEnc();
+            String newEnc = encryptOrNull(plainPassword, key);
+            if (entry.getId() > 0 && oldEnc != null && !oldEnc.isEmpty() && !oldEnc.equals(newEnc)) {
+                db.insertPasswordHistory(entry.getId(), oldEnc);
+                db.trimPasswordHistory(entry.getId(), MAX_PASSWORD_HISTORY);
+            }
+            entry.setPasswordEnc(newEnc);
         }
         db.updateEntry(entry);
+    }
+
+    // ---------- 密码历史版本 ----------
+
+    /** 某条目的历史密码列表（最新在前） */
+    public List<PasswordHistoryItem> listPasswordHistory(long entryId) {
+        return db.listPasswordHistory(entryId);
+    }
+
+    /** 某条目的历史密码条数 */
+    public int countPasswordHistory(long entryId) {
+        return db.countPasswordHistory(entryId);
+    }
+
+    /** 解密单条历史记录；解密失败返回空串（展示层按“无法解密”处理） */
+    public String decryptHistoryPassword(PasswordHistoryItem item, SecretKey key) {
+        if (item == null || item.getPasswordEnc() == null || item.getPasswordEnc().isEmpty()) {
+            return "";
+        }
+        try {
+            return AesUtil.decrypt(item.getPasswordEnc(), key);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
+     * 把指定历史版本恢复为当前密码：旧的当前密码反向留档，历史记录与之一一互换，
+     * 避免列表重复堆积。恢复后条目密码直接落库（密文写入，无明文落盘）。
+     */
+    public void restorePasswordFromHistory(Entry entry, PasswordHistoryItem item, SecretKey key) {
+        if (entry == null || item == null) {
+            return;
+        }
+        String target = item.getPasswordEnc();
+        if (target == null || target.isEmpty()) {
+            return;
+        }
+        String current = entry.getPasswordEnc();
+        db.deletePasswordHistoryById(item.getId());
+        if (current != null && !current.isEmpty() && !current.equals(target)) {
+            db.insertPasswordHistory(entry.getId(), current);
+        }
+        entry.setPasswordEnc(target);
+        db.updateEntry(entry);
+        db.trimPasswordHistory(entry.getId(), MAX_PASSWORD_HISTORY);
+    }
+
+    /** 清空某条目的历史密码 */
+    public void clearPasswordHistory(long entryId) {
+        db.deletePasswordHistory(entryId);
     }
 
     /** 解密条目密码 */

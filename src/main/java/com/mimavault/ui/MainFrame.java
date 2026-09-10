@@ -138,11 +138,14 @@ public class MainFrame extends JFrame {
             lockItem.addActionListener(e -> autoLogout());
             java.awt.MenuItem closeBehaviorItem = new java.awt.MenuItem("Close Action...");
             closeBehaviorItem.addActionListener(e -> showCloseChoiceDialog());
+            java.awt.MenuItem dataDirItem = new java.awt.MenuItem("Migrate Data...");
+            dataDirItem.addActionListener(e -> openDataMigrationDialog());
             java.awt.MenuItem exitItem = new java.awt.MenuItem("Exit");
             exitItem.addActionListener(e -> quitApp());
             menu.add(openItem);
             menu.add(lockItem);
             menu.add(closeBehaviorItem);
+            menu.add(dataDirItem);
             menu.addSeparator();
             menu.add(exitItem);
 
@@ -188,6 +191,11 @@ public class MainFrame extends JFrame {
             cfg.save();
             hideToTray();
         }
+    }
+
+    /** 弹出数据迁移对话框：把全部数据迁移/转移到电脑的另一个磁盘或文件夹（v8.30.1） */
+    private void openDataMigrationDialog() {
+        new DataDirDialog(this).setVisible(true);
     }
 
     /** 关闭窗口：最小化到托盘（静默，不弹系统通知） */
@@ -379,10 +387,18 @@ public class MainFrame extends JFrame {
         healthBtn.setPreferredSize(new Dimension(110, 32));
         healthBtn.addActionListener(e -> onSecurityReport());
 
+        // 数据迁移入口：把全部数据迁移/转移到电脑的另一个磁盘或文件夹（v8.30.1）
+        GradientButton dataDirBtn = new GradientButton("数据迁移",
+                new Color(0x667EEA), new Color(0x764BA2), Color.WHITE, null);
+        dataDirBtn.setPreferredSize(new Dimension(110, 32));
+        dataDirBtn.setToolTipText("将密码库等全部数据迁移到其他磁盘/文件夹");
+        dataDirBtn.addActionListener(e -> openDataMigrationDialog());
+
         JPanel leftBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         leftBox.setOpaque(false);
         leftBox.add(title);
         leftBox.add(healthBtn);
+        leftBox.add(dataDirBtn);
         header.add(leftBox, BorderLayout.WEST);
 
         JLabel sub = new JLabel("本地加密 · 安全保管", SwingConstants.RIGHT);
@@ -408,13 +424,16 @@ public class MainFrame extends JFrame {
         categoryFilter.setPreferredSize(new Dimension(80, 30));
         row1.add(categoryFilter);
 
-        // 生成器入口：生成随机密码 / 邮箱地址，结果复制到剪贴板并弹提示（放在第一行右侧）
+        // 生成器入口：打开密码生成器（随机密码 / 口令短语）与邮箱地址生成，结果复制到剪贴板并弹提示
         GradientButton genPwdBtn = createToolButton("生成密码", e -> {
-            String pwd = PasswordGenerator.generatePassword();
+            String pwd = PasswordGeneratorDialog.showDialog(MainFrame.this, "密码生成器");
+            if (pwd == null || pwd.isEmpty()) {
+                return;
+            }
             ClipboardSafe.copySecret(pwd);
-            Toast.show(MainFrame.this, "已生成随机密码并复制到剪贴板");
+            Toast.show(MainFrame.this, "已生成密码并复制到剪贴板");
         });
-        genPwdBtn.setToolTipText("生成随机密码（16位）并复制到剪贴板，可再次点击重新生成");
+        genPwdBtn.setToolTipText("打开密码生成器：随机密码（可排除易混淆字符、自定义字符集）/ 口令短语（本地词表）");
         GradientButton genEmailBtn = createToolButton("生成邮箱", e -> {
             String email = PasswordGenerator.generateEmail();
             ClipboardSafe.copy(email);
@@ -897,7 +916,12 @@ public class MainFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "请先选中一条记录", "提示", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
-        new EntryDetailDialog(this, selected, service, key).setVisible(true);
+        EntryDetailDialog detail = new EntryDetailDialog(this, selected, service, key);
+        detail.setVisible(true);
+        if (detail.isChanged()) {
+            // 详情中编辑保存或恢复了历史密码：重新载入列表（强度列按新密码重算）
+            refreshTable(null, null);
+        }
     }
 
     /** 列表行右键菜单：复制账号/密码/邮箱（统一走 ClipboardSafe 30 秒自动清除） */
@@ -1030,21 +1054,27 @@ public class MainFrame extends JFrame {
         }
     }
 
-    /** 导入密匣备份（.pmaster）：输入主密码解密后进入导入流程 */
+    /** 导入密匣备份（.pmaster）：输入备份文件主密码解密后进入导入流程 */
     private void importPmaster(Path source) {
-        // 输入主密码解密
+        // 输入备份文件自身的主密码（跨密码导入：可不等于当前库主密码）
+        JLabel tip = new JLabel("<html>请输入<font color='#C62828'><b>备份文件</b></font>的主密码解密该备份：</html>");
+        tip.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
         JPasswordField pwdField = new JPasswordField(16);
-        int r = JOptionPane.showConfirmDialog(this, pwdField, "请输入主密码解密备份文件", JOptionPane.OK_CANCEL_OPTION);
+        Object[] msg = {tip, pwdField};
+        int r = JOptionPane.showConfirmDialog(this, msg, "备份文件主密码", JOptionPane.OK_CANCEL_OPTION);
         if (r != JOptionPane.OK_OPTION) {
             return;
         }
         BackupUtil.BackupPackage pack;
+        SecretKey backupKey;
         try {
             char[] importPwd = pwdField.getPassword();
             try {
-                // 多通道解密：header PBKDF2 → 当前库密钥 → 旧版 SHA-256（见 BackupUtil.importBackup）
-                SecretKey currentKey = service.deriveKey(importPwd);
-                pack = BackupUtil.importBackup(source, importPwd, currentKey);
+                // 多通道解密：header PBKDF2（备份主密码）→ 当前库密钥 → 旧版 SHA-256
+                // 返回 backupKey 供条目密码「备份密钥解密 → 当前库密钥重加密」
+                BackupUtil.ImportResult result = BackupUtil.importBackupDetailed(source, importPwd, key);
+                pack = result.pack;
+                backupKey = result.backupKey;
             } finally {
                 java.util.Arrays.fill(importPwd, '\0'); // 明文用完即清
             }
@@ -1052,14 +1082,44 @@ public class MainFrame extends JFrame {
                 JOptionPane.showMessageDialog(this, "备份文件中没有数据", "提示", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
-            doImport(pack);
+            doImport(pack, backupKey);
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "导入失败：主密码错误或文件损坏\n" + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
     }
 
-    /** 导出为 CSV（明文文件，导出前红色风险警告），导出指定条目集合 */
+    /** 导出为 CSV：默认脱敏（密码列打码、不解密），选完整明文导出需再次确认 */
     private void exportCsv(List<Entry> entries) {
+        if (entries.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "当前没有可导出的数据", "提示", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        // 第一步：选择导出方式（默认脱敏）
+        JLabel tip = new JLabel("<html>CSV 是<font color='#C62828'><b>不加密的明文文件</b></font>，Excel 等程序可直接打开：<br>"
+                + "· <font color='#2E7D32'><b>脱敏导出（推荐）</b></font>：密码列写 " + CsvUtil.MASKED_PASSWORD + "，文件不含任何明文密码；<br>"
+                + "· <font color='#C62828'><b>导出完整明文</b></font>：密码列写入真实密码，泄露风险最高，需再次确认。</html>");
+        tip.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
+        Object[] options = {"脱敏导出（推荐）", "导出完整明文", "取消"};
+        int choice = JOptionPane.showOptionDialog(this, tip, "导出 CSV - 选择导出方式",
+                JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+        if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) {
+            return;
+        }
+        boolean maskPassword = choice == 0;
+
+        // 第二步：完整明文导出二次确认
+        if (!maskPassword) {
+            JLabel risk = new JLabel("<html><font color='#C62828'><b>高风险确认</b></font>：即将导出 <font color='#C62828'><b>"
+                    + entries.size() + " 条</b></font>记录的<font color='#C62828'><b>完整明文密码</b></font>。<br>"
+                    + "导出后文件可被任何程序读取，请勿通过聊天工具、邮件或网盘传输。<br>确定继续导出吗？</html>");
+            risk.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
+            int r = JOptionPane.showConfirmDialog(this, risk, "再次确认：导出完整明文密码",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (r != JOptionPane.OK_OPTION) {
+                return;
+            }
+        }
+
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("导出为 CSV");
         chooser.setSelectedFile(new java.io.File("MimaVault_export_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date()) + ".csv"));
@@ -1071,20 +1131,11 @@ public class MainFrame extends JFrame {
         if (!target.toString().toLowerCase().endsWith(".csv")) {
             target = Paths.get(target.toString() + ".csv");
         }
-        // 明文风险红色警告
-        JLabel warn = new JLabel("<html><font color='#C62828'><b>警告</b></font>：CSV 为<font color='#C62828'>明文文件</font>，包含全部密码明文。<br>请妥善保管，切勿公开传输或分享。</html>");
-        warn.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
-        int r = JOptionPane.showConfirmDialog(this, warn, "导出明文 CSV", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (r != JOptionPane.OK_OPTION) {
-            return;
-        }
         try {
-            if (entries.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "当前没有可导出的数据", "提示", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            CsvUtil.export(entries, key, target);
-            JOptionPane.showMessageDialog(this, "导出成功，共 " + entries.size() + " 条记录\n" + target, "导出完成", JOptionPane.INFORMATION_MESSAGE);
+            CsvUtil.export(entries, key, target, maskPassword);
+            JOptionPane.showMessageDialog(this, "导出成功（"
+                    + (maskPassword ? "密码列已脱敏" : "密码列为完整明文") + "），共 " + entries.size() + " 条记录\n" + target,
+                    "导出完成", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "导出失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
@@ -1195,7 +1246,23 @@ public class MainFrame extends JFrame {
         refreshTable(null, null);
     }
 
-    private void doImport(BackupUtil.BackupPackage pack) {
+    private void doImport(BackupUtil.BackupPackage pack, SecretKey backupKey) {
+        // 跨密码导入：条目密码从「备份密钥」解密 → 「当前库密钥」重加密（解不开保留原密文并计数告警）
+        int reencryptFailed = 0;
+        if (backupKey != null) {
+            for (BackupUtil.BackupItem item : pack.items) {
+                if (item.password != null && item.password.startsWith("encrypted:")) {
+                    String enc = item.password.substring("encrypted:".length());
+                    try {
+                        String plain = AesUtil.decrypt(enc, backupKey);
+                        item.password = "encrypted:" + AesUtil.encrypt(plain, key);
+                    } catch (Exception ex) {
+                        reencryptFailed++; // 保留原密文，导入后该条密码可能无法查看
+                    }
+                }
+            }
+        }
+
         boolean hasExisting = !service.listEntries().isEmpty();
         String mode = "合并";
         if (hasExisting) {
@@ -1277,9 +1344,13 @@ public class MainFrame extends JFrame {
         }
 
         refreshTable(null, null);
-        JOptionPane.showMessageDialog(this,
-                "导入完成：成功 " + restored + " 条" + (skipped > 0 ? "，重复跳过 " + skipped + " 条" : ""),
-                "导入完成", JOptionPane.INFORMATION_MESSAGE);
+        String doneMsg = "导入完成：成功 " + restored + " 条" + (skipped > 0 ? "，重复跳过 " + skipped + " 条" : "");
+        if (reencryptFailed > 0) {
+            doneMsg += "\n\n注意：" + reencryptFailed + " 条密码无法用备份密钥解开，已保留原密文，可能无法查看";
+            JOptionPane.showMessageDialog(this, doneMsg, "导入完成（部分密码未迁移）", JOptionPane.WARNING_MESSAGE);
+        } else {
+            JOptionPane.showMessageDialog(this, doneMsg, "导入完成", JOptionPane.INFORMATION_MESSAGE);
+        }
     }
 
     /** 覆盖导入取消哨兵 */

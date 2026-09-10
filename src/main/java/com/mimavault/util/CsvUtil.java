@@ -30,19 +30,36 @@ public final class CsvUtil {
     /** 导出表头（英文，兼容主流密码管理器） */
     private static final String[] HEADERS = {"name", "url", "username", "password", "notes"};
 
+    /** 脱敏导出时密码列的占位内容（不写入任何明文，也不做解密） */
+    public static final String MASKED_PASSWORD = "********";
+
     private CsvUtil() {
     }
 
     // ==================== 导出 ====================
 
     /**
-     * 导出全部条目为通用 CSV（明文文件，UTF-8 带 BOM）
+     * 导出全部条目为通用 CSV（兼容旧调用，密码列为完整明文）
      *
      * @param entries    密码字段为密文的条目列表（调用方从库中读取，此处解密）
      * @param key        主密码派生密钥
      * @param targetPath 目标 .csv 文件
      */
     public static void export(List<Entry> entries, SecretKey key, Path targetPath) throws IOException {
+        export(entries, key, targetPath, false);
+    }
+
+    /**
+     * 导出全部条目为通用 CSV（UTF-8 带 BOM）
+     *
+     * @param entries      密码字段为密文的条目列表（调用方从库中读取，此处解密）
+     * @param key          主密码派生密钥
+     * @param targetPath   目标 .csv 文件
+     * @param maskPassword true = 密码列脱敏（写占位符，完全不解密，适合分享/备份）；
+     *                     false = 写入完整明文密码（高危，调用方必须先做风险二次确认）
+     */
+    public static void export(List<Entry> entries, SecretKey key, Path targetPath, boolean maskPassword)
+            throws IOException {
         StringBuilder sb = new StringBuilder();
         sb.append(String.join(",", HEADERS)).append("\r\n");
         for (Entry e : entries) {
@@ -50,7 +67,8 @@ public final class CsvUtil {
             row.add(nz(e.getPlatform()));       // name
             row.add("");                        // url：密匣无独立网址字段
             row.add(nz(e.getAccount()));        // username
-            row.add(decryptOrEmpty(e, key));    // password
+            // password：脱敏时直接写占位符，不触碰密文，杜绝明文进入内存与文件
+            row.add(maskPassword ? MASKED_PASSWORD : decryptOrEmpty(e, key));
             row.add(nz(e.getNote()));           // notes
             sb.append(joinRow(row)).append("\r\n");
         }
