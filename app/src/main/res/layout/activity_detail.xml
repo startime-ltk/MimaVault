@@ -171,6 +171,17 @@
                 android:text="@string/copy_password"
                 android:textColor="@color/white" 
                 app:backgroundTint="@null"/>
+
+            <Button
+                android:id="@+id/btnHistory"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_chip"
+                android:text="@string/history_title"
+                android:textColor="@color/primary"
+                android:textSize="13sp"
+                app:backgroundTint="@null"/>
         </LinearLayout>
 
         <!-- 手势 -->

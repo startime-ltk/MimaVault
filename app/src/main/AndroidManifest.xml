@@ -2,7 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <application
@@ -28,11 +27,11 @@
         <activity android:name=".ui.EditEntryActivity" android:exported="false" />
         <activity android:name=".ui.DetailActivity" android:exported="false" />
         <activity android:name=".ui.GestureActivity" android:exported="false" />
-        <activity android:name=".ui.FaceActivity" android:exported="false" />
         <activity android:name=".ui.QrExportActivity" android:exported="false" />
         <activity android:name=".ui.QrImportActivity" android:exported="false" />
         <activity android:name=".ui.TrashActivity" android:exported="false" />
         <activity android:name=".ui.SecurityReportActivity" android:exported="false" />
+        <activity android:name=".ui.PasswordHistoryActivity" android:exported="false" />
     </application>
 
 </manifest>

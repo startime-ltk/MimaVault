@@ -29,7 +29,6 @@ import com.mimavault.R;
 import com.mimavault.model.BackupModel;
 import com.mimavault.model.Entry;
 import com.mimavault.service.BackupService;
-import com.mimavault.service.FaceUnlockHelper;
 import com.mimavault.service.GestureUnlockHelper;
 import com.mimavault.service.PasswordService;
 import com.mimavault.service.VaultSession;
@@ -309,7 +308,7 @@ public class MainActivity extends AppCompatActivity {
         labels.add(getString(R.string.import_menu));
         actions.add(() -> fileImportLauncher.launch(new String[]{"*/*"}));
         labels.add(getString(R.string.export_csv));
-        actions.add(() -> fileCsvExportLauncher.launch("MimaVault-" + System.currentTimeMillis() + ".csv"));
+        actions.add(this::showCsvExportRiskDialog);
         labels.add(getString(R.string.import_csv));
         actions.add(() -> fileCsvImportLauncher.launch(new String[]{"*/*"}));
         labels.add(getString(R.string.qr_export));
@@ -326,15 +325,6 @@ public class MainActivity extends AppCompatActivity {
         if (gestureSet) {
             labels.add(getString(R.string.gesture_clear_login));
             actions.add(() -> verifyMasterThen(MainActivity.this::clearGestureUnlock));
-        }
-
-        // 人脸解锁（OpenCV 摄像头方案，本地模板比对）：设置 / 重录 / 清除前均验证主密码
-        boolean faceSet = FaceUnlockHelper.isFaceSet(this);
-        labels.add(getString(faceSet ? R.string.face_menu_modify : R.string.face_menu_set));
-        actions.add(() -> verifyMasterThen(MainActivity.this::startFaceSetup));
-        if (faceSet) {
-            labels.add(getString(R.string.face_clear_login));
-            actions.add(() -> verifyMasterThen(MainActivity.this::clearFaceUnlock));
         }
 
         labels.add(getString(R.string.trash));
@@ -396,18 +386,9 @@ public class MainActivity extends AppCompatActivity {
         startActivityForResult(i, REQ_GESTURE_LOGIN);
     }
 
-    private void startFaceSetup() {
-        FaceActivity.startRegister(this);
-    }
-
     private void clearGestureUnlock() {
         GestureUnlockHelper.clear(this);
         Toast.makeText(this, R.string.gesture_cleared, Toast.LENGTH_SHORT).show();
-    }
-
-    private void clearFaceUnlock() {
-        FaceUnlockHelper.clear(this);
-        Toast.makeText(this, R.string.face_cleared, Toast.LENGTH_SHORT).show();
     }
 
     @Override
@@ -524,12 +505,43 @@ public class MainActivity extends AppCompatActivity {
         b.show();
     }
 
+    /** 下次 CSV 导出是否脱敏（默认脱敏；完整明文需在风险对话框二次确认后置为 false） */
+    private boolean csvExportMasked = true;
+
+    /** CSV 导出风险二次确认：默认走脱敏导出，完整明文导出必须再确认一次 */
+    private void showCsvExportRiskDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.csv_export_risk_title)
+                .setMessage(R.string.csv_export_risk_message)
+                .setPositiveButton(R.string.csv_export_masked, (d, w) -> {
+                    csvExportMasked = true;
+                    fileCsvExportLauncher.launch("MimaVault-" + System.currentTimeMillis() + ".csv");
+                })
+                .setNeutralButton(R.string.csv_export_plain, (d, w) -> confirmPlainCsvExport())
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    /** 完整明文导出的第二道确认 */
+    private void confirmPlainCsvExport() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.csv_export_plain_confirm_title)
+                .setMessage(R.string.csv_export_plain_confirm_message)
+                .setPositiveButton(R.string.csv_export_plain_confirm_ok, (d, w) -> {
+                    csvExportMasked = false;
+                    fileCsvExportLauncher.launch("MimaVault-" + System.currentTimeMillis() + ".csv");
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
     private void doExportCsv(Uri uri) {
+        final boolean masked = csvExportMasked;
         new Thread(() -> {
             try {
                 File tmp = new File(getCacheDir(), "export.csv");
                 List<Entry> entries = service.listEntries();
-                CsvUtil.export(entries, VaultSession.get().key(), tmp.toPath());
+                CsvUtil.export(entries, VaultSession.get().key(), tmp.toPath(), masked);
                 try (InputStream is = new java.io.FileInputStream(tmp);
                      FileOutputStream fos = (FileOutputStream) getContentResolver().openOutputStream(uri)) {
                     byte[] buf = new byte[8192];
@@ -538,7 +550,9 @@ public class MainActivity extends AppCompatActivity {
                         fos.write(buf, 0, n);
                     }
                 }
-                main.post(() -> Toast.makeText(this, R.string.csv_export_success, Toast.LENGTH_LONG).show());
+                main.post(() -> Toast.makeText(this,
+                        masked ? R.string.csv_export_masked_success : R.string.csv_export_plain_success,
+                        Toast.LENGTH_LONG).show());
             } catch (Exception e) {
                 main.post(() -> Toast.makeText(this, "CSV 导出失败：" + e.getMessage(), Toast.LENGTH_LONG).show());
             }

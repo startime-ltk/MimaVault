@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">密匣 MimaVault</string>
     <string name="edit">编辑</string>
-    <string name="version_name">A9.9.5</string>
-    <string name="android_version">Android 版 · vA9.9.5</string>
+    <string name="version_name">A9.9.16</string>
+    <string name="android_version">Android 版 · vA9.9.16</string>
     <string name="label_platform">平台 / 网站</string>
     <string name="label_account">账号</string>
     <string name="label_password">密码</string>
@@ -55,6 +55,7 @@
     <string name="save">保存</string>
     <string name="delete">删除</string>
     <string name="cancel">取消</string>
+    <string name="confirm">确定</string>
     <string name="copy_password">复制密码（30 秒后自动清除）</string>
     <string name="copied">已复制到剪贴板，30 秒后自动清除</string>
     <string name="show">显示</string>
@@ -87,7 +88,7 @@
     <string name="trash_purge">彻底删除</string>
     <string name="trash_restored">已恢复</string>
     <string name="trash_purged">已彻底删除</string>
-    <string name="export_csv">导出 CSV（明文）</string>
+    <string name="export_csv">导出 CSV</string>
     <string name="import_csv">导入 CSV</string>
     <string name="security_report">安全报告</string>
     <string name="csv_export_success">CSV 导出成功</string>
@@ -116,30 +117,46 @@
     <string name="gesture_cleared">手势密码已清除</string>
     <string name="gesture_invalid">手势序列无效</string>
 
-    <!-- 人脸解锁（OpenCV 摄像头方案） -->
-    <string name="unlock_with_face">人脸解锁</string>
-    <string name="face_menu_set">设置人脸解锁</string>
-    <string name="face_menu_modify">重录人脸</string>
-    <string name="face_clear_login">清除人脸解锁</string>
-    <string name="face_verify_title">验证主密码</string>
-    <string name="face_verify_hint">设置 / 重录人脸前需验证主密码</string>
-    <string name="face_setup_success">人脸解锁设置成功</string>
-    <string name="face_cleared">人脸解锁已清除</string>
-    <string name="face_engine_fail">人脸引擎初始化失败</string>
-    <string name="face_data_missing">人脸数据缺失或已失效，请使用主密码解锁</string>
-    <string name="face_camera_permission">需要相机权限才能使用人脸解锁</string>
-    <string name="face_camera_fail">摄像头启动失败</string>
-    <string name="face_register_wait">正对屏幕，将脸部放入框内</string>
-    <string name="face_register_sharp">画面模糊或过暗，请调整光线</string>
-    <string name="face_register_hold">检测到人脸，保持姿势…</string>
-    <string name="face_register_ok">人脸已录入，正在保存…</string>
-    <string name="face_saved">人脸解锁设置成功</string>
-    <string name="face_session_closed">会话未打开，无法保存人脸</string>
-    <string name="face_unlock_wait">正对屏幕进行人脸识别…</string>
-    <string name="face_unlock_matching">比对中… %1$d%%</string>
-    <string name="face_unlock_no_match">未能匹配(%1$d%%)，请调整光线与角度</string>
-    <string name="face_process_fail">图像处理失败，请重试</string>
-    <string name="face_use_password">返回，使用其他方式解锁</string>
-    <string name="face_action_back">取消</string>
-    <string name="face_locked_hint">人脸比对失败次数过多，请使用主密码解锁</string>
+    <!-- 密码生成器增强 -->
+    <string name="gen_title">密码生成器</string>
+    <string name="gen_mode_random">随机密码</string>
+    <string name="gen_mode_passphrase">口令短语</string>
+    <string name="gen_length_label">密码长度：%1$d 位</string>
+    <string name="gen_words_label">单词个数：%1$d 个</string>
+    <string name="gen_exclude_ambiguous">排除易混淆字符（0 O 1 l I）</string>
+    <string name="gen_types">字符类型</string>
+    <string name="gen_upper">大写 A-Z</string>
+    <string name="gen_lower">小写 a-z</string>
+    <string name="gen_digits">数字 0-9</string>
+    <string name="gen_symbols">符号 !@#</string>
+    <string name="gen_custom_charset_hint">自定义字符集（可选，填入后并入候选字符池）</string>
+    <string name="gen_separator_hint">分隔符（默认 -）</string>
+    <string name="gen_capitalize">单词首字母大写</string>
+    <string name="gen_append_number">末尾附加两位数字</string>
+    <string name="gen_custom_words_hint">自定义词表（可选，逗号/空格分隔，≥2 个词生效）</string>
+    <string name="gen_regen">换一个</string>
+    <string name="gen_use">使用此密码</string>
+
+    <!-- 密码历史版本 -->
+    <string name="history_title">密码历史版本</string>
+    <string name="history_hint">仅保留最近 20 条；历史密码同样本地加密存储，可随时恢复为当前密码。</string>
+    <string name="history_empty">暂无历史版本\n修改密码后，旧密码会自动留档在这里</string>
+    <string name="history_item_time">%1$s 修改前</string>
+    <string name="history_restore">恢复此密码</string>
+    <string name="history_restore_confirm">将该历史密码恢复为当前密码？当前密码会反向留档到历史列表，可随时再切回。</string>
+    <string name="history_restored">已恢复该历史密码</string>
+    <string name="history_decrypt_failed">解密失败，无法显示该历史密码</string>
+    <string name="history_empty_value">（空）</string>
+    <string name="history_entry">历史版本（%1$d）</string>
+
+    <!-- CSV 导出风险二次确认 -->
+    <string name="csv_export_risk_title">导出 CSV 安全提示</string>
+    <string name="csv_export_risk_message">CSV 为纯文本格式：完整明文导出后，任何拿到该文件的人都能直接读取全部密码，也容易被网盘、聊天工具留痕。\n\n推荐「脱敏导出」：密码列写为 ********，其余字段照常导出，适合备份与查看。\n\n仅当你确实需要明文（如迁移到其他密码管理器）时才选择完整明文导出，并请在导入完成后立即删除该文件。</string>
+    <string name="csv_export_masked">脱敏导出（推荐）</string>
+    <string name="csv_export_plain">仍要完整明文导出</string>
+    <string name="csv_export_plain_confirm_title">再次确认：完整明文导出</string>
+    <string name="csv_export_plain_confirm_message">导出的文件将包含全部账号与明文密码，一旦泄露无法撤回。确定继续吗？</string>
+    <string name="csv_export_plain_confirm_ok">确认明文导出</string>
+    <string name="csv_export_masked_success">已导出（密码列已脱敏）</string>
+    <string name="csv_export_plain_success">已导出完整明文，请妥善保管并及时删除文件</string>
 </resources>

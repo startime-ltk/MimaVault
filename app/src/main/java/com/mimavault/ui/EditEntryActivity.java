@@ -20,7 +20,6 @@ import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
 import com.mimavault.util.InsetsUtil;
 import com.mimavault.model.Entry;
-import com.mimavault.util.PasswordGenerator;
 import com.mimavault.service.PasswordService;
 import com.mimavault.service.VaultSession;
 import com.mimavault.util.GestureParser;
@@ -135,11 +134,10 @@ public class EditEntryActivity extends AppCompatActivity {
             btnImageClear.setEnabled(false);
         }
 
-        btnGenPwd.setOnClickListener(v -> {
-            String pwd = PasswordGenerator.generatePassword(16);
+        btnGenPwd.setOnClickListener(v -> PasswordGeneratorDialog.show(this, pwd -> {
             etPassword.setText(pwd);
             refreshStrength();
-        });
+        }));
         etPassword.addTextChangedListener(new android.text.TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -244,7 +242,8 @@ public class EditEntryActivity extends AppCompatActivity {
                 // 未输入新密码，保留原密码
                 service.updateEntry(e, null, VaultSession.get().key(), true);
             } else {
-                service.updateEntry(e, plain, VaultSession.get().key(), true);
+                // 写入新密码：旧密码自动留档到历史版本
+                service.updateEntry(e, plain, VaultSession.get().key(), false);
             }
         } else {
             if (plain.isEmpty()) {

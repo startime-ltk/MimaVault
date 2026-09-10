@@ -83,6 +83,8 @@ public class DetailActivity extends AppCompatActivity {
         findViewById(R.id.btnToggle).setOnClickListener(v -> togglePassword());
         findViewById(R.id.btnEdit).setOnClickListener(v -> EditEntryActivity.start(this, entry.getId()));
         findViewById(R.id.btnDelete).setOnClickListener(v -> confirmDelete());
+        findViewById(R.id.btnHistory).setOnClickListener(v ->
+                PasswordHistoryActivity.start(this, entry.getId()));
 
         render();
     }
@@ -101,6 +103,8 @@ public class DetailActivity extends AppCompatActivity {
     }
 
     private void render() {
+        ((android.widget.Button) findViewById(R.id.btnHistory)).setText(
+                getString(R.string.history_entry, service.countPasswordHistory(entry.getId())));
         tvPlatform.setText(entry.getPlatform());
         tvCategory.setText(entry.getCategory());
         String account = entry.getAccount();

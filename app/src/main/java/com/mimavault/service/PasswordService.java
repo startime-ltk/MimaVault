@@ -3,6 +3,7 @@ package com.mimavault.service;
 import com.mimavault.util.AesUtil;
 import com.mimavault.db.DatabaseManager;
 import com.mimavault.model.Entry;
+import com.mimavault.model.PasswordHistoryItem;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +21,9 @@ public class PasswordService {
         MATCH_NEED_UPGRADE,
         MISMATCH
     }
+
+    /** 单条目保留的历史密码条数上限 */
+    public static final int MAX_PASSWORD_HISTORY = 20;
 
     private final DatabaseManager db;
 
@@ -128,11 +132,60 @@ public class PasswordService {
         return db.insertEntry(entry);
     }
 
+    /**
+     * 更新条目。keepPassword 为 false 时写入新密码，并把改密前的旧密码留档到历史表，
+     * 供后续回溯查看与一键恢复（历史同样为密文存储，明文不落盘）。
+     */
     public void updateEntry(Entry entry, String plainPassword, SecretKey key, boolean keepPassword) {
         if (!keepPassword) {
-            entry.setPasswordEnc(encryptOrNull(plainPassword, key));
+            String oldEnc = entry.getPasswordEnc();
+            String newEnc = encryptOrNull(plainPassword, key);
+            if (oldEnc != null && !oldEnc.isEmpty() && !oldEnc.equals(newEnc)) {
+                db.insertPasswordHistory(entry.getId(), oldEnc);
+                db.trimPasswordHistory(entry.getId(), MAX_PASSWORD_HISTORY);
+            }
+            entry.setPasswordEnc(newEnc);
         }
         db.updateEntry(entry);
+    }
+
+    // ---------- 密码历史版本 ----------
+
+    /** 某条目的历史密码列表（最新在前） */
+    public List<PasswordHistoryItem> listPasswordHistory(long entryId) {
+        return db.listPasswordHistory(entryId);
+    }
+
+    /** 某条目的历史密码条数 */
+    public int countPasswordHistory(long entryId) {
+        return db.countPasswordHistory(entryId);
+    }
+
+    /**
+     * 把指定历史版本恢复为当前密码：旧的当前密码反向留档，历史记录与之一一互换，
+     * 避免列表重复堆积。恢复后条目密码直接落库（密文写入，无明文落盘）。
+     */
+    public void restorePasswordFromHistory(Entry entry, PasswordHistoryItem item, SecretKey key) {
+        if (entry == null || item == null) {
+            return;
+        }
+        String target = item.getPasswordEnc();
+        if (target == null || target.isEmpty()) {
+            return;
+        }
+        String current = entry.getPasswordEnc();
+        db.deletePasswordHistoryById(item.getId());
+        if (current != null && !current.isEmpty() && !current.equals(target)) {
+            db.insertPasswordHistory(entry.getId(), current);
+        }
+        entry.setPasswordEnc(target);
+        db.updateEntry(entry);
+        db.trimPasswordHistory(entry.getId(), MAX_PASSWORD_HISTORY);
+    }
+
+    /** 清空某条目的历史密码 */
+    public void clearPasswordHistory(long entryId) {
+        db.deletePasswordHistory(entryId);
     }
 
     public String decryptPassword(Entry entry, SecretKey key) {
