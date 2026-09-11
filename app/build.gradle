@@ -10,8 +10,8 @@ android {
         applicationId "com.mimavaultapp"
         minSdk 26
         targetSdk 36
-        versionCode 23
-        versionName "A9.9.18"
+        versionCode 24
+        versionName "A9.9.19"
     }
 
     signingConfigs {

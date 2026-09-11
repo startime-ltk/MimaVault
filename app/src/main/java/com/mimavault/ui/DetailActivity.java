@@ -248,10 +248,10 @@ public class DetailActivity extends AppCompatActivity {
             gestureBox.setVisibility(View.GONE);
         }
 
-        // 图片附件
+        // 图片附件：仅在图片真实存在且可解码时才展示，避免出现空白卡片
         imageBox.removeAllViews();
+        imageBox.setVisibility(View.GONE);
         if (entry.getImagePath() != null && !entry.getImagePath().isEmpty()) {
-            imageBox.setVisibility(View.VISIBLE);
             File f = ImageUtil.resolve(this, entry.getImagePath());
             if (f != null && f.exists()) {
                 Bitmap bmp = BitmapFactory.decodeFile(f.getAbsolutePath());
@@ -265,10 +265,9 @@ public class DetailActivity extends AppCompatActivity {
                     iv.setBackgroundResource(R.drawable.bg_input);
                     iv.setOnClickListener(v -> showImageFull(bmp));
                     imageBox.addView(iv);
+                    imageBox.setVisibility(View.VISIBLE);
                 }
             }
-        } else {
-            imageBox.setVisibility(View.GONE);
         }
     }
 
