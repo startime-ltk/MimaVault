@@ -14,6 +14,7 @@ import com.mimavault.util.OcrUtil;
 import com.mimavault.util.PasswordGenerator;
 import com.mimavault.util.PasswordStrengthUtil;
 import com.mimavault.util.TextBatchParser;
+import com.mimavault.util.TotpUtil;
 import com.github.kwhat.jnativehook.GlobalScreen;
 import com.github.kwhat.jnativehook.keyboard.NativeKeyEvent;
 import com.github.kwhat.jnativehook.keyboard.NativeKeyListener;
@@ -831,7 +832,7 @@ public class MainFrame extends JFrame {
     }
 
     private void onAdd() {
-        EntryEditDialog dlg = new EntryEditDialog(this, null);
+        EntryEditDialog dlg = new EntryEditDialog(this, null, key);
         dlg.setVisible(true);
         if (dlg.isSaved()) {
             service.addEntry(dlg.getEntry(), dlg.getPlainPassword(), key);
@@ -1160,6 +1161,14 @@ public class MainFrame extends JFrame {
                 if (row.password != null && !row.password.isEmpty()) {
                     e.setPasswordEnc(AesUtil.encrypt(row.password, key));
                 }
+                // CSV 中的动态验证码列：规范化为 otpauth 链接后加密存库（格式不合法则跳过，不阻塞导入）
+                if (row.totp != null && !row.totp.trim().isEmpty()) {
+                    try {
+                        e.setTotpSecretEnc(AesUtil.encrypt(TotpUtil.parse(row.totp).toUri(), key));
+                    } catch (Exception ignore) {
+                        // 无法识别的 2FA 字段：忽略
+                    }
+                }
                 entries.add(e);
             }
             // 用户确认导入内容后才入库
@@ -1258,6 +1267,16 @@ public class MainFrame extends JFrame {
                         item.password = "encrypted:" + AesUtil.encrypt(plain, key);
                     } catch (Exception ex) {
                         reencryptFailed++; // 保留原密文，导入后该条密码可能无法查看
+                    }
+                }
+                // TOTP 密钥同样做「备份密钥解密 → 当前库密钥重加密」，保证导入后动态验证码可正常生成
+                if (item.totpSecret != null && item.totpSecret.startsWith("encrypted:")) {
+                    String enc = item.totpSecret.substring("encrypted:".length());
+                    try {
+                        String plain = AesUtil.decrypt(enc, backupKey);
+                        item.totpSecret = "encrypted:" + AesUtil.encrypt(plain, key);
+                    } catch (Exception ex) {
+                        reencryptFailed++;
                     }
                 }
             }

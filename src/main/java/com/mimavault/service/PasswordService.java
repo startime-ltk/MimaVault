@@ -151,6 +151,27 @@ public class PasswordService {
             }
         }
 
+        // 3.5 TOTP 密文：与密码同钥加密，不迁移则升级后动态验证码无法生成（先全量预检再写回）
+        List<Entry> totpAffected = new ArrayList<>();
+        for (Entry e : entries) {
+            String totpEnc = e.getTotpSecretEnc();
+            if (totpEnc == null || totpEnc.isEmpty()) {
+                continue;
+            }
+            try {
+                AesUtil.decrypt(totpEnc, oldKey);
+                totpAffected.add(e);
+            } catch (Exception ex) {
+                throw new IllegalStateException(
+                        "迁移预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】的动态验证码密钥无法用当前主密码解密，已中止迁移（数据未改动）", ex);
+            }
+        }
+        for (Entry e : totpAffected) {
+            String plain = AesUtil.decrypt(e.getTotpSecretEnc(), oldKey);
+            e.setTotpSecretEnc(AesUtil.encrypt(plain, newKey));
+            db.updateEntry(e);
+        }
+
         // 4. 更新存储为新格式（最后一步，保证失败时旧数据仍可用旧密码打开）
         db.saveMasterHash(AesUtil.buildPbkdf2Record(masterPassword, salt, AesUtil.PBKDF2_ITERATIONS));
     }
@@ -204,7 +225,28 @@ public class PasswordService {
             db.updateEntry(e);
         }
 
-        // 4.5 历史密码密文同步重加密（历史与条目同源同钥，不改则改主密码后历史将无法解密）
+        // 4.5 TOTP 密钥密文同步重加密（与密码同钥，不改则改主密码后动态验证码无法生成）
+        List<Entry> totpAffected = new ArrayList<>();
+        for (Entry e : entries) {
+            String totpEnc = e.getTotpSecretEnc();
+            if (totpEnc == null || totpEnc.isEmpty()) {
+                continue;
+            }
+            try {
+                AesUtil.decrypt(totpEnc, oldKey);
+                totpAffected.add(e);
+            } catch (Exception ex) {
+                throw new IllegalStateException(
+                        "修改主密码预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】的动态验证码密钥无法解密，已中止（数据未改动）", ex);
+            }
+        }
+        for (Entry e : totpAffected) {
+            String plain = AesUtil.decrypt(e.getTotpSecretEnc(), oldKey);
+            e.setTotpSecretEnc(AesUtil.encrypt(plain, newKey));
+            db.updateEntry(e);
+        }
+
+        // 4.6 历史密码密文同步重加密（历史与条目同源同钥，不改则改主密码后历史将无法解密）
         for (PasswordHistoryItem h : db.listAllPasswordHistory()) {
             String enc = h.getPasswordEnc();
             if (enc == null || enc.isEmpty()) {
@@ -309,6 +351,26 @@ public class PasswordService {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    /** 解密条目动态验证码（otpauth 链接）；未绑定或解密失败返回 null */
+    public String decryptTotp(Entry entry, SecretKey key) {
+        if (entry == null || entry.getTotpSecretEnc() == null || entry.getTotpSecretEnc().isEmpty() || key == null) {
+            return null;
+        }
+        try {
+            return AesUtil.decrypt(entry.getTotpSecretEnc(), key);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 加密动态验证码链接；空值返回 null */
+    public static String encryptTotpOrNull(String totpUri, SecretKey key) {
+        if (totpUri == null || totpUri.isEmpty() || key == null) {
+            return null;
+        }
+        return AesUtil.encrypt(totpUri, key);
     }
 
     /** 查询列表（解密密码字段，供导出/展示使用） */

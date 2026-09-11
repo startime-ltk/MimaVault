@@ -5,6 +5,7 @@ import com.mimavault.service.PasswordService;
 import com.mimavault.util.ClipboardSafe;
 import com.mimavault.util.ImageUtil;
 import com.mimavault.util.PasswordStrengthUtil;
+import com.mimavault.util.TotpUtil;
 
 import javax.crypto.SecretKey;
 import javax.swing.*;
@@ -39,6 +40,14 @@ public class EntryDetailDialog extends JDialog {
     private Timer hintTimer;
     private String plainPassword = null;
     private boolean showPassword = false;
+    /** TOTP 动态验证码（RFC 6238），纯离线生成，与安卓端 TotpUtil 一致 */
+    private TotpUtil.Config totpConfig = null;
+    private Timer totpTimer;
+    private final JPanel totpCell = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+    private final JLabel totpCodeLabel = new JLabel();
+    private final JLabel totpCountdownLabel = new JLabel();
+    private final JProgressBar totpBar = new JProgressBar();
+    private GradientButton totpCopyBtn;
     /** 本次打开详情期间是否改动过条目（编辑保存 / 恢复历史版本），供主界面决定是否刷新 */
     private boolean changed = false;
 
@@ -49,6 +58,18 @@ public class EntryDetailDialog extends JDialog {
         this.key = key;
         setIconImage(UiTheme.getAppIcon());
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        // 关闭详情页即停止验证码倒计时，避免后台无谓刷新
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                stopTotpTimer();
+            }
+
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                stopTotpTimer();
+            }
+        });
 
         RoundedPanel main = new RoundedPanel(16);
         main.setLayout(new BorderLayout(10, 10));
@@ -100,6 +121,31 @@ public class EntryDetailDialog extends JDialog {
         gbc.gridx = 1;
         info.add(pwdPanel, gbc);
         row++;
+
+        // 动态验证码行（TOTP）：已绑定时每 30 秒离线刷新，一键复制（30 秒后自动清除剪贴板）
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        JLabel totpRowLabel = new JLabel("验证码：");
+        totpRowLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 13));
+        totpRowLabel.setForeground(new Color(100, 100, 100));
+        info.add(totpRowLabel, gbc);
+        totpCell.setOpaque(false);
+        totpCodeLabel.setFont(new Font("Consolas", Font.BOLD, 16));
+        totpCodeLabel.setForeground(new Color(0x1E88E5));
+        totpCountdownLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        totpBar.setPreferredSize(new Dimension(70, 8));
+        totpBar.setBorderPainted(false);
+        totpCopyBtn = GradientButton.accent("复制");
+        totpCopyBtn.setToolTipText("复制当前动态验证码（30 秒后自动清除剪贴板）");
+        totpCopyBtn.addActionListener(e -> copyField(totpCodeLabel.getText().replace(" ", ""), "验证码"));
+        totpCell.add(totpCodeLabel);
+        totpCell.add(totpBar);
+        totpCell.add(totpCountdownLabel);
+        totpCell.add(totpCopyBtn);
+        gbc.gridx = 1;
+        info.add(totpCell, gbc);
+        row++;
+        applyTotpState();
 
         phoneLabel = addInfoRow(info, gbc, row++, "手机号：", nullToEmpty(entry.getPhone()));
         // 邮箱行：文本 + 复制按钮
@@ -157,6 +203,72 @@ public class EntryDetailDialog extends JDialog {
         }
     }
 
+    /** 依据条目的 TOTP 绑定状态刷新验证码行：已绑定则启动 30 秒倒计时刷新，未绑定则置灰 */
+    private void applyTotpState() {
+        String uri = service.decryptTotp(entry, key);
+        totpConfig = null;
+        if (uri != null && !uri.isEmpty()) {
+            try {
+                totpConfig = TotpUtil.parse(uri);
+            } catch (Exception ignore) {
+                totpConfig = null;
+            }
+        }
+        if (totpConfig == null) {
+            stopTotpTimer();
+            boolean bound = entry.getTotpSecretEnc() != null && !entry.getTotpSecretEnc().isEmpty();
+            totpCodeLabel.setText(bound ? "（无法解密）" : "未绑定");
+            totpCodeLabel.setForeground(new Color(130, 130, 130));
+            totpBar.setVisible(false);
+            totpCountdownLabel.setVisible(false);
+            if (totpCopyBtn != null) {
+                totpCopyBtn.setEnabled(false);
+            }
+        } else {
+            totpCodeLabel.setForeground(new Color(0x1E88E5));
+            totpBar.setMinimum(0);
+            totpBar.setMaximum(totpConfig.period);
+            totpBar.setVisible(true);
+            totpCountdownLabel.setVisible(true);
+            if (totpCopyBtn != null) {
+                totpCopyBtn.setEnabled(true);
+            }
+            refreshTotp();
+            startTotpTimer();
+        }
+        totpCell.revalidate();
+        totpCell.repaint();
+    }
+
+    /** 生成当前验证码并刷新倒计时进度（每 1 秒调用一次） */
+    private void refreshTotp() {
+        if (totpConfig == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        totpCodeLabel.setText(TotpUtil.formatForDisplay(TotpUtil.generate(totpConfig, now)));
+        int remain = TotpUtil.remainingSeconds(totpConfig.period, now);
+        totpBar.setValue(remain);
+        totpCountdownLabel.setText(remain + "s");
+        totpCountdownLabel.setForeground(remain <= 5 ? new Color(0xE74C3C) : new Color(110, 110, 110));
+    }
+
+    private void startTotpTimer() {
+        if (totpTimer == null) {
+            totpTimer = new Timer(1000, e -> refreshTotp());
+            totpTimer.setRepeats(true);
+        }
+        if (!totpTimer.isRunning()) {
+            totpTimer.start();
+        }
+    }
+
+    private void stopTotpTimer() {
+        if (totpTimer != null) {
+            totpTimer.stop();
+        }
+    }
+
     /** 打开历史版本对话框：可查看/复制/恢复改密前的旧密码，恢复后同步刷新详情 */
     private void onHistory() {
         PasswordHistoryDialog dlg = new PasswordHistoryDialog(this, entry, service, key);
@@ -206,6 +318,9 @@ public class EntryDetailDialog extends JDialog {
         }
         pwdPanel.revalidate();
         pwdPanel.repaint();
+
+        // 验证码：编辑后可能新增/清除绑定，同步刷新
+        applyTotpState();
 
         refreshRightPanel();
         pack();

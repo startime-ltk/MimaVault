@@ -9,6 +9,7 @@ import com.mimavault.util.ImageUtil;
 import com.mimavault.util.OcrUtil;
 import com.mimavault.util.PasswordGenerator;
 import com.mimavault.util.TextParser;
+import com.mimavault.util.TotpUtil;
 
 import javax.crypto.SecretKey;
 import javax.swing.*;
@@ -40,11 +41,14 @@ public class EntryEditDialog extends JDialog {
     private final JTextArea noteArea = new JTextArea(3, 20);
     private final JLabel imageLabel = new JLabel("未选择");
     private final JLabel gestureLabel = new JLabel("未设置");
+    private final JLabel totpLabel = new JLabel("未绑定");
     private final SecretKey key;      // 编辑时用于解密显示原密码；新增可传 null
     private String originalPlain;     // 编辑加载时的明文密码（用于判断是否修改）
     private boolean keepOld = false;  // 是否保留原密码密文
     private String imagePath;     // 新选择的图片相对路径
     private String gestureSeq;    // 手势序列
+    private String totpUri;       // TOTP 规范化 otpauth 链接（明文，保存时 AES 加密落库）
+    private boolean totpKeepOriginal; // 原 TOTP 密文解不开时置位：保存时原样保留，避免误清空
     private boolean saved = false;
 
     public EntryEditDialog(Window owner, Entry entry) {
@@ -191,8 +195,30 @@ public class EntryEditDialog extends JDialog {
             handleDropImage(images.get(0));
         });
 
-        add(form, BorderLayout.CENTER);
+        // 动态验证码（TOTP，RFC 6238）：绑定 otpauth 链接或 Base32 密钥，客户端离线生成，与安卓端一致
+        row++;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        form.add(new JLabel("动态验证码："), gbc);
+        JPanel totpPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        totpPanel.setOpaque(false);
+        GradientButton bindTotp = GradientButton.secondary("绑定验证器...");
+        bindTotp.setToolTipText("粘贴 otpauth:// 链接或验证器 App 的 Base32 密钥，本机离线生成 30 秒动态验证码");
+        bindTotp.addActionListener(e -> bindTotp());
+        GradientButton clearTotp = GradientButton.secondary("清除");
+        clearTotp.addActionListener(e -> {
+            totpUri = null;
+            totpKeepOriginal = false;
+            totpLabel.setText("未绑定");
+        });
+        totpLabel.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        totpPanel.add(bindTotp);
+        totpPanel.add(clearTotp);
+        totpPanel.add(totpLabel);
+        gbc.gridx = 1;
+        form.add(totpPanel, gbc);
 
+        add(form, BorderLayout.CENTER);
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         bottom.setOpaque(false);
         GradientButton ok = GradientButton.primary("保存");
@@ -240,6 +266,67 @@ public class EntryEditDialog extends JDialog {
         }
         if (gestureSeq != null && !gestureSeq.isEmpty()) {
             gestureLabel.setText(gestureSeq);
+        }
+        if (entry.getTotpSecretEnc() != null && !entry.getTotpSecretEnc().isEmpty()) {
+            if (key != null) {
+                try {
+                    String uri = AesUtil.decrypt(entry.getTotpSecretEnc(), key);
+                    if (uri != null && !uri.isEmpty()) {
+                        totpUri = uri;
+                        totpLabel.setText(TotpUtil.parse(uri).label() + "（已绑定）");
+                    } else {
+                        totpKeepOriginal = true;
+                    }
+                } catch (Exception ex) {
+                    totpUri = null;
+                    totpKeepOriginal = true;
+                    totpLabel.setText("（已绑定，解析失败）");
+                }
+            } else {
+                totpLabel.setText("（已加密，无法显示）");
+            }
+        }
+    }
+
+    /**
+     * 绑定动态验证码：粘贴 otpauth:// 链接或验证器 App 的 Base32 密钥，
+     * 解析后即时生成一次验证码供用户与验证器 App 核对，确认无误才绑定（纯离线，不联网）。
+     */
+    private void bindTotp() {
+        String hint = "<html>粘贴验证器 App 的<font color='#C62828'><b> otpauth:// 链接</b></font>，"
+                + "或「手动输入密钥」里提供的 <font color='#C62828'><b>Base32 密钥</b></font>：<br>"
+                + "支持 Google Authenticator / 微软 / Authy / 1Password 等（SHA1/SHA256/SHA512，6~8 位，默认 30 秒）。</html>";
+        String input = (String) JOptionPane.showInputDialog(this, hint, "绑定动态验证码",
+                JOptionPane.PLAIN_MESSAGE, null, null, "");
+        if (input == null) {
+            return; // 用户取消
+        }
+        TotpUtil.Config c;
+        try {
+            c = TotpUtil.parse(input);
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, "无法解析：" + ex.getMessage()
+                    + "\n\n请输入完整的 otpauth://totp/... 链接，或验证器的 Base32 密钥。", "绑定失败", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        // 链接未带发行方/账号时，用当前编辑的平台/账号补齐，便于详情页显示
+        if (c.issuer == null || c.issuer.trim().isEmpty()) {
+            c.issuer = platformField.getText().trim();
+        }
+        if (c.account == null || c.account.trim().isEmpty()) {
+            c.account = accountField.getText().trim();
+        }
+        String code = TotpUtil.generate(c, System.currentTimeMillis());
+        int r = JOptionPane.showConfirmDialog(this,
+                "已识别：" + c.label() + "\n"
+                        + "当前验证码：" + TotpUtil.formatForDisplay(code)
+                        + "（" + c.digits + " 位 / " + c.period + " 秒 / " + c.algorithm + "）\n\n"
+                        + "请与验证器 App 上显示的验证码核对，一致即点击「确定」完成绑定。",
+                "确认绑定", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (r == JOptionPane.OK_OPTION) {
+            totpUri = c.toUri();
+            totpKeepOriginal = false;
+            totpLabel.setText(c.label() + "（已绑定）");
         }
     }
 
@@ -416,6 +503,18 @@ public class EntryEditDialog extends JDialog {
         entry.setNote(noteArea.getText().trim());
         entry.setImagePath(imagePath);
         entry.setGestureSeq(gestureSeq);
+        // TOTP：有绑定则用会话密钥 AES 加密后落库；清除则置空；原密文解不开时原样保留
+        boolean hasTotp = totpUri != null && !totpUri.isEmpty();
+        if (key != null) {
+            if (totpKeepOriginal) {
+                entry.setTotpSecretEnc(entry.getTotpSecretEnc());
+            } else {
+                entry.setTotpSecretEnc(hasTotp ? AesUtil.encrypt(totpUri, key) : null);
+            }
+        } else if (hasTotp) {
+            JOptionPane.showMessageDialog(this, "当前会话缺少密钥，无法加密保存动态验证码", "提示", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         saved = true;
         keepOld = keepOldPassword;
         passwordPlain = keepOldPassword ? null : (hasPassword ? password : null);

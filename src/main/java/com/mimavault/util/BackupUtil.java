@@ -60,6 +60,7 @@ public final class BackupUtil {
             item.email = e.getEmail();
             item.note = e.getNote();
             item.gestureSeq = e.getGestureSeq();
+            item.totpSecret = e.getTotpSecretEnc() == null ? null : "encrypted:" + e.getTotpSecretEnc();
             item.syncStatus = e.getSyncStatus();
             item.createdAt = e.getCreatedAt();
             item.updatedAt = e.getUpdatedAt();
@@ -199,6 +200,7 @@ public final class BackupUtil {
         public String imageBase64;
         public String imageName;
         public String gestureSeq;
+        public String totpSecret;    // "encrypted:<otpauth 链接密文>" 或 null（与密码同样随主密码加密）
         public String syncStatus;
         public Date createdAt;
         public Date updatedAt;
@@ -216,6 +218,9 @@ public final class BackupUtil {
             e.setEmail(email);
             e.setNote(note);
             e.setGestureSeq(gestureSeq);
+            if (totpSecret != null && totpSecret.startsWith("encrypted:")) {
+                e.setTotpSecretEnc(totpSecret.substring("encrypted:".length()));
+            }
             e.setSyncStatus(syncStatus == null ? "local" : syncStatus);
             e.setCreatedAt(createdAt);
             e.setUpdatedAt(updatedAt);

@@ -63,6 +63,7 @@ public class DatabaseManager {
                         + "note TEXT,"
                         + "image_path TEXT,"
                         + "gesture_seq TEXT,"
+                        + "totp_secret_enc TEXT,"
                         + "sync_status TEXT DEFAULT 'local',"
                         + "created_at INTEGER,"
                         + "updated_at INTEGER)");
@@ -80,6 +81,8 @@ public class DatabaseManager {
             ensureColumn("entries", "category", "TEXT DEFAULT '网站'");
             ensureColumn("entries", "sync_status", "TEXT DEFAULT 'local'");
             ensureColumn("entries", "deleted_at", "INTEGER");
+            // TOTP 动态验证码密钥（otpauth 链接密文），与安卓端 TOTP 能力对齐
+            ensureColumn("entries", "totp_secret_enc", "TEXT");
         } catch (Exception e) {
             throw new IllegalStateException("数据库初始化失败", e);
         }
@@ -149,8 +152,8 @@ public class DatabaseManager {
 
     /** 插入条目 */
     public long insertEntry(Entry e) {
-        String sql = "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, sync_status, created_at, updated_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
+        String sql = "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, sync_status, created_at, updated_at) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             long now = System.currentTimeMillis();
@@ -163,9 +166,10 @@ public class DatabaseManager {
             ps.setString(7, e.getNote());
             ps.setString(8, e.getImagePath());
             ps.setString(9, e.getGestureSeq());
-            ps.setString(10, e.getSyncStatus());
-            ps.setLong(11, now);
+            ps.setString(10, e.getTotpSecretEnc());
+            ps.setString(11, e.getSyncStatus());
             ps.setLong(12, now);
+            ps.setLong(13, now);
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -180,7 +184,7 @@ public class DatabaseManager {
 
     /** 更新条目 */
     public void updateEntry(Entry e) {
-        String sql = "UPDATE entries SET category=?, platform=?, account=?, password_enc=?, phone=?, email=?, note=?, image_path=?, gesture_seq=?, updated_at=? WHERE id=?";
+        String sql = "UPDATE entries SET category=?, platform=?, account=?, password_enc=?, phone=?, email=?, note=?, image_path=?, gesture_seq=?, totp_secret_enc=?, updated_at=? WHERE id=?";
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, e.getCategory());
@@ -192,8 +196,9 @@ public class DatabaseManager {
             ps.setString(7, e.getNote());
             ps.setString(8, e.getImagePath());
             ps.setString(9, e.getGestureSeq());
-            ps.setLong(10, System.currentTimeMillis());
-            ps.setLong(11, e.getId());
+            ps.setString(10, e.getTotpSecretEnc());
+            ps.setLong(11, System.currentTimeMillis());
+            ps.setLong(12, e.getId());
             ps.executeUpdate();
         } catch (SQLException ex) {
             throw new IllegalStateException("更新条目失败", ex);
@@ -366,8 +371,8 @@ public class DatabaseManager {
         try (Connection conn = connect()) {
             conn.setAutoCommit(false);
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, sync_status, created_at, updated_at) "
-                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                    "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, sync_status, created_at, updated_at) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
                 for (Entry e : entries) {
                     ps.setString(1, e.getCategory() == null ? Entry.CATEGORY_WEBSITE : e.getCategory());
                     ps.setString(2, e.getPlatform());
@@ -378,9 +383,10 @@ public class DatabaseManager {
                     ps.setString(7, e.getNote());
                     ps.setString(8, e.getImagePath());
                     ps.setString(9, e.getGestureSeq());
-                    ps.setString(10, e.getSyncStatus() == null ? "local" : e.getSyncStatus());
-                    ps.setLong(11, e.getCreatedAt() == null ? System.currentTimeMillis() : e.getCreatedAt().getTime());
-                    ps.setLong(12, e.getUpdatedAt() == null ? System.currentTimeMillis() : e.getUpdatedAt().getTime());
+                    ps.setString(10, e.getTotpSecretEnc());
+                    ps.setString(11, e.getSyncStatus() == null ? "local" : e.getSyncStatus());
+                    ps.setLong(12, e.getCreatedAt() == null ? System.currentTimeMillis() : e.getCreatedAt().getTime());
+                    ps.setLong(13, e.getUpdatedAt() == null ? System.currentTimeMillis() : e.getUpdatedAt().getTime());
                     ps.addBatch();
                 }
                 ps.executeBatch();
@@ -545,6 +551,11 @@ public class DatabaseManager {
         e.setNote(rs.getString("note"));
         e.setImagePath(rs.getString("image_path"));
         e.setGestureSeq(rs.getString("gesture_seq"));
+        try {
+            e.setTotpSecretEnc(rs.getString("totp_secret_enc"));
+        } catch (SQLException ignore) {
+            e.setTotpSecretEnc(null); // 老库升级前的行不含该列（极端情况兜底）
+        }
         e.setSyncStatus(rs.getString("sync_status"));
         long created = rs.getLong("created_at");
         long updated = rs.getLong("updated_at");
