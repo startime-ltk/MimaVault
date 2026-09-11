@@ -2,10 +2,22 @@
 
 轻量化本地 PC 密码管理程序。Java 17 + Maven + Swing + SQLite + FlatLaf，数据全部本地存储、零联网。
 
+## 下载（无需克隆仓库）
+
+| 平台 | 版本 | 下载 |
+| --- | --- | --- |
+| Windows PC | v8.30.2 | [安装程序 MimaVault_Setup_v8.30.2.exe](https://github.com/startime-ltk/mimavault/releases/download/v8.30.2/MimaVault_Setup_v8.30.2.exe) / [可执行 jar](https://github.com/startime-ltk/mimavault/releases/download/v8.30.2/MimaVault_v8.30.2.jar) |
+| Android | A9.9.16 | [MimaVault-A9.9.16.apk](https://github.com/startime-ltk/mimavault/releases/download/A9.9.16/MimaVault-A9.9.16.apk) |
+
+全部版本见 [Releases](https://github.com/startime-ltk/mimavault/releases)。PC 端源码在 `main` 分支，安卓端源码在 `android` 分支。
+
 ## 功能特性
 
 - 本地密码库：平台 / 账号 / 密码 / 手机 / 邮箱 / 备注 / 图片附件
 - 主密码登录保护，AES-256-GCM 加密存储所有密码字段
+- 密码生成器增强：排除易混淆字符、自定义字符集、口令短语模式
+- 密码历史版本：修改密码时密文留档最近 20 条，支持查看与恢复（与安卓端 `password_history` 表结构兼容）
+- CSV 导出默认脱敏（密码字段打码），导出明文需二次确认
 - OCR 识图：从截图 / 图片中提取密码信息
 - 智能导入：图文交叉批量识别、一键入库（支持 .docx / .txt）
 - 数据备份与恢复（导出 / 导入加密备份包）
