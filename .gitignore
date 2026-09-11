@@ -12,3 +12,7 @@ captures/
 *.err
 deps_check.txt
 keystore/
+build_log*.txt
+*.db
+*_20260831_*.gradle
+*_20260831_*.properties

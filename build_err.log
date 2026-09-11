@@ -1,3 +1,0 @@
-Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
-注: F:\Java\work\MimaVault-Android\app\src\main\java\com\mimavault\ui\EditEntryActivity.java使用或覆盖了已过时的 API。
-注: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
