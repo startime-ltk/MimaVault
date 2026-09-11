@@ -190,6 +190,73 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- 动态验证码（TOTP，纯离线） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="18dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/label_totp"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tvTotpStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/text_main"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnTotpScan"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_button_primary"
+                    android:text="@string/totp_scan"
+                    android:textColor="@color/white"
+                    android:textSize="13sp"
+                    app:backgroundTint="@null" />
+
+                <Button
+                    android:id="@+id/btnTotpManual"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_input"
+                    android:text="@string/totp_manual"
+                    android:textColor="@color/primary"
+                    android:textSize="13sp"
+                    app:backgroundTint="@null" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnTotpClear"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_input"
+                android:text="@string/totp_clear"
+                android:textColor="@color/primary"
+                android:textSize="13sp"
+                app:backgroundTint="@null" />
+        </LinearLayout>
+
         <!-- 图片 -->
         <LinearLayout
             android:layout_width="match_parent"

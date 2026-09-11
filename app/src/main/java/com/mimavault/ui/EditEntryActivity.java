@@ -1,6 +1,7 @@
 package com.mimavault.ui;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -16,8 +17,11 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.journeyapps.barcodescanner.ScanContract;
+import com.journeyapps.barcodescanner.ScanOptions;
 import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
+import com.mimavault.util.AesUtil;
 import com.mimavault.util.InsetsUtil;
 import com.mimavault.model.Entry;
 import com.mimavault.service.PasswordService;
@@ -25,10 +29,11 @@ import com.mimavault.service.VaultSession;
 import com.mimavault.util.GestureParser;
 import com.mimavault.util.ImageUtil;
 import com.mimavault.util.PasswordStrengthUtil;
+import com.mimavault.util.TotpUtil;
 
 /**
  * 新增 / 编辑条目
- * 支持：密码生成、强度提示、九宫格手势、图片附件
+ * 支持：密码生成、强度提示、九宫格手势、图片附件、动态验证码（TOTP）
  */
 public class EditEntryActivity extends AppCompatActivity {
 
@@ -59,6 +64,21 @@ public class EditEntryActivity extends AppCompatActivity {
     private Button btnImageClear;
     private TextView tvImageName;
     private ImageView ivImagePreview;
+
+    // 动态验证码（TOTP，纯离线）
+    private TextView tvTotpStatus;
+    private Button btnTotpClear;
+    /** 内存中的 otpauth 规范链接；保存时用会话密钥加密后落库，明文不落盘 */
+    private String totpUri = "";
+
+    /** TOTP 扫码：直接复用 ZXing 扫码组件，扫码结果为 otpauth:// 链接 */
+    private final ActivityResultLauncher<ScanOptions> totpScanLauncher =
+            registerForActivityResult(new ScanContract(), result -> {
+                if (result.getContents() == null) {
+                    return;
+                }
+                applyTotpInput(result.getContents().trim());
+            });
 
     private String gestureSeq = "";
     private String imagePath = "";   // 相对路径 images/xxx.jpg
@@ -99,6 +119,8 @@ public class EditEntryActivity extends AppCompatActivity {
         btnImageClear = findViewById(R.id.btnImageClear);
         tvImageName = findViewById(R.id.tvImageName);
         ivImagePreview = findViewById(R.id.ivImagePreview);
+        tvTotpStatus = findViewById(R.id.tvTotpStatus);
+        btnTotpClear = findViewById(R.id.btnTotpClear);
 
         spCategory.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, Entry.CATEGORIES));
         if (editId > 0) {
@@ -118,6 +140,14 @@ public class EditEntryActivity extends AppCompatActivity {
             etNote.setText(e.getNote());
             gestureSeq = e.getGestureSeq() == null ? "" : e.getGestureSeq();
             tvGesture.setText(GestureParser.describe(gestureSeq));
+            // 动态验证码：解密 otpauth 链接（解密失败视为未绑定，不阻塞编辑）
+            try {
+                String totpEnc = e.getTotpSecretEnc();
+                totpUri = (totpEnc == null || totpEnc.isEmpty())
+                        ? "" : AesUtil.decrypt(totpEnc, VaultSession.get().key());
+            } catch (Exception ex) {
+                totpUri = "";
+            }
             imagePath = e.getImagePath() == null ? "" : e.getImagePath();
             if (!imagePath.isEmpty()) {
                 tvImageName.setText("已有附件：" + imagePath.substring(imagePath.lastIndexOf('/') + 1));
@@ -170,6 +200,22 @@ public class EditEntryActivity extends AppCompatActivity {
             btnImageClear.setEnabled(false);
         });
 
+        // 动态验证码：扫码绑定 / 手动录入 / 清除
+        findViewById(R.id.btnTotpScan).setOnClickListener(v -> {
+            ScanOptions options = new ScanOptions();
+            options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);
+            options.setPrompt(getString(R.string.totp_scan_hint));
+            options.setBeepEnabled(false);
+            totpScanLauncher.launch(options);
+        });
+        findViewById(R.id.btnTotpManual).setOnClickListener(v -> showTotpManualDialog());
+        btnTotpClear.setOnClickListener(v -> {
+            totpUri = "";
+            updateTotpStatus();
+            Toast.makeText(this, R.string.totp_clear, Toast.LENGTH_SHORT).show();
+        });
+        updateTotpStatus();
+
         findViewById(R.id.btnSave).setOnClickListener(v -> onSave());
         findViewById(R.id.btnCancel).setOnClickListener(v -> finish());
     }
@@ -209,6 +255,81 @@ public class EditEntryActivity extends AppCompatActivity {
                 ? R.color.warning : R.color.success));
     }
 
+    /** 解析扫码 / 手工输入的 otpauth 链接或 Base32 密钥，成功则暂存规范化链接 */
+    private void applyTotpInput(String input) {
+        if (input == null || input.trim().isEmpty()) {
+            Toast.makeText(this, R.string.totp_empty_input, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            TotpUtil.Config c = TotpUtil.parse(input);
+            totpUri = c.toUri();
+            updateTotpStatus();
+            Toast.makeText(this, getString(R.string.totp_set, c.label()), Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, R.string.totp_invalid, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void showTotpManualDialog() {
+        final EditText et = new EditText(this);
+        et.setHint(R.string.totp_manual_hint);
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        et.setMinLines(2);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.totp_manual_title)
+                .setView(et)
+                .setPositiveButton(R.string.confirm, null)
+                .setNegativeButton(R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String text = et.getText().toString().trim();
+            if (text.isEmpty()) {
+                Toast.makeText(this, R.string.totp_empty_input, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            try {
+                TotpUtil.Config c = TotpUtil.parse(text);
+                totpUri = c.toUri();
+                updateTotpStatus();
+                dialog.dismiss();
+                Toast.makeText(this, getString(R.string.totp_set, c.label()), Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(this, R.string.totp_invalid, Toast.LENGTH_LONG).show();
+            }
+        }));
+        dialog.show();
+    }
+
+    /** 刷新绑定状态文案与「清除」按钮可用性 */
+    private void updateTotpStatus() {
+        if (totpUri == null || totpUri.isEmpty()) {
+            tvTotpStatus.setText(R.string.totp_not_set);
+            btnTotpClear.setEnabled(false);
+            return;
+        }
+        String label = "动态验证码";
+        try {
+            label = TotpUtil.parse(totpUri).label();
+        } catch (Exception ignored) {
+        }
+        tvTotpStatus.setText(getString(R.string.totp_set, label));
+        btnTotpClear.setEnabled(true);
+    }
+
+    /** 未绑定或加密失败返回 null（落库即空，视为未绑定） */
+    private String encryptTotpOrNull() {
+        if (totpUri == null || totpUri.isEmpty()) {
+            return null;
+        }
+        try {
+            return AesUtil.encrypt(totpUri, VaultSession.get().key());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private void onSave() {
         String platform = etPlatform.getText().toString().trim();
         if (platform.isEmpty()) {
@@ -236,6 +357,8 @@ public class EditEntryActivity extends AppCompatActivity {
             e.setEmail(email);
             e.setNote(note);
             e.setGestureSeq(gestureSeq);
+            // 动态验证码密钥随会话密钥加密落库；清除后写空即为解绑
+            e.setTotpSecretEnc(encryptTotpOrNull());
             // 无条件写入：支持清除图片后保存（置空路径）
             e.setImagePath(imagePath);
             if (plain.isEmpty()) {
@@ -258,6 +381,8 @@ public class EditEntryActivity extends AppCompatActivity {
             e.setEmail(email);
             e.setNote(note);
             e.setGestureSeq(gestureSeq);
+            e.setTotpSecretEnc(encryptTotpOrNull());
+            e.setImagePath(imagePath);
             savedId = service.addEntry(e, plain, VaultSession.get().key());
         }
 

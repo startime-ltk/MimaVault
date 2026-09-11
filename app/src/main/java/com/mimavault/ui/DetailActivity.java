@@ -5,9 +5,12 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -19,10 +22,12 @@ import com.mimavault.util.InsetsUtil;
 import com.mimavault.model.Entry;
 import com.mimavault.service.PasswordService;
 import com.mimavault.service.VaultSession;
+import com.mimavault.util.AesUtil;
 import com.mimavault.util.ClipboardUtil;
 import com.mimavault.util.GestureParser;
 import com.mimavault.util.ImageUtil;
 import com.mimavault.util.PasswordStrengthUtil;
+import com.mimavault.util.TotpUtil;
 
 import java.io.File;
 
@@ -54,6 +59,24 @@ public class DetailActivity extends AppCompatActivity {
     private LinearLayout imageBox;
     private TextView tvGestureText;
 
+    // 动态验证码（TOTP）
+    private LinearLayout totpBox;
+    private TextView tvTotpCode;
+    private TextView tvTotpCountdown;
+    private ProgressBar pbTotp;
+    private TotpUtil.Config totpConfig;
+    private final Handler totpHandler = new Handler(Looper.getMainLooper());
+    private final Runnable totpTick = new Runnable() {
+        @Override
+        public void run() {
+            if (totpConfig == null) {
+                return;
+            }
+            refreshTotp();
+            totpHandler.postDelayed(this, 1000);
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -79,6 +102,11 @@ public class DetailActivity extends AppCompatActivity {
         gestureBox = findViewById(R.id.gestureBox);
         imageBox = findViewById(R.id.imageBox);
         tvGestureText = findViewById(R.id.tvGestureText);
+        totpBox = findViewById(R.id.totpBox);
+        tvTotpCode = findViewById(R.id.tvTotpCode);
+        tvTotpCountdown = findViewById(R.id.tvTotpCountdown);
+        pbTotp = findViewById(R.id.pbTotp);
+        findViewById(R.id.btnTotpCopy).setOnClickListener(v -> copyTotpCode());
         findViewById(R.id.btnCopy).setOnClickListener(v -> copyPassword());
         findViewById(R.id.btnToggle).setOnClickListener(v -> togglePassword());
         findViewById(R.id.btnEdit).setOnClickListener(v -> EditEntryActivity.start(this, entry.getId()));
@@ -100,11 +128,80 @@ public class DetailActivity extends AppCompatActivity {
                 render();
             }
         }
+        totpHandler.removeCallbacks(totpTick);
+        if (totpConfig != null) {
+            totpHandler.post(totpTick);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // 页面不可见立即停表，避免后台空转与验证码泄漏到快照
+        totpHandler.removeCallbacks(totpTick);
+    }
+
+    /** 读取并解密 TOTP 配置；无绑定或解密失败时隐藏卡片 */
+    private void renderTotp() {
+        totpConfig = null;
+        String enc = entry.getTotpSecretEnc();
+        if (enc == null || enc.isEmpty()) {
+            totpBox.setVisibility(View.GONE);
+            return;
+        }
+        try {
+            String uri = AesUtil.decrypt(enc, VaultSession.get().key());
+            TotpUtil.Config c = TotpUtil.parse(uri);
+            totpConfig = c;
+            totpBox.setVisibility(View.VISIBLE);
+            refreshTotp();
+        } catch (Exception e) {
+            // 密钥不可解（例如改主密码期间的旧密文）时不展示，避免显示错误验证码
+            totpBox.setVisibility(View.GONE);
+        }
+    }
+
+    /** 每秒刷新验证码与剩余时间 */
+    private void refreshTotp() {
+        if (totpConfig == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        String code = TotpUtil.generate(totpConfig, now);
+        tvTotpCode.setText(groupCode(code));
+        int remain = TotpUtil.remainingSeconds(totpConfig.period, now);
+        pbTotp.setMax(totpConfig.period);
+        pbTotp.setProgress(remain);
+        tvTotpCountdown.setText(getString(R.string.totp_remain, remain));
+    }
+
+    /** 6 位验证码按 3+3 分组显示，便于核对 */
+    private String groupCode(String code) {
+        if (code == null || code.length() < 6) {
+            return code == null ? "" : code;
+        }
+        if (code.length() == 6) {
+            return code.substring(0, 3) + " " + code.substring(3);
+        }
+        return code;
+    }
+
+    private void copyTotpCode() {
+        if (totpConfig == null) {
+            return;
+        }
+        String code = TotpUtil.generate(totpConfig, System.currentTimeMillis());
+        if (code.isEmpty()) {
+            return;
+        }
+        ClipboardUtil.copyWithAutoClear(this, code);
+        Toast.makeText(this, R.string.totp_copied, Toast.LENGTH_SHORT).show();
     }
 
     private void render() {
         ((android.widget.Button) findViewById(R.id.btnHistory)).setText(
                 getString(R.string.history_entry, service.countPasswordHistory(entry.getId())));
+        renderTotp();
         tvPlatform.setText(entry.getPlatform());
         tvCategory.setText(entry.getCategory());
         String account = entry.getAccount();

@@ -318,6 +318,10 @@ public class MainActivity extends AppCompatActivity {
         labels.add(getString(R.string.security_report));
         actions.add(() -> SecurityReportActivity.start(this));
 
+        // 修改主密码：需先验证当前主密码，成功后全量重加密
+        labels.add(getString(R.string.change_master_menu));
+        actions.add(() -> verifyMasterThen(() -> ChangeMasterPasswordActivity.start(MainActivity.this)));
+
         // 手势密码（主密码为主、手势可选）：设置 / 修改前必须验证主密码
         boolean gestureSet = GestureUnlockHelper.isGestureSet(this);
         labels.add(getString(gestureSet ? R.string.gesture_menu_modify : R.string.gesture_menu_set));

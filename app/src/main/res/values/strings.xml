@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">密匣 MimaVault</string>
     <string name="edit">编辑</string>
-    <string name="version_name">A9.9.17</string>
-    <string name="android_version">Android 版 · vA9.9.17</string>
+    <string name="version_name">A9.9.18</string>
+    <string name="android_version">Android 版 · vA9.9.18</string>
     <string name="label_platform">平台 / 网站</string>
     <string name="label_account">账号</string>
     <string name="label_password">密码</string>
@@ -159,4 +159,38 @@
     <string name="csv_export_plain_confirm_ok">确认明文导出</string>
     <string name="csv_export_masked_success">已导出（密码列已脱敏）</string>
     <string name="csv_export_plain_success">已导出完整明文，请妥善保管并及时删除文件</string>
+
+    <!-- 动态验证码（TOTP，纯离线） -->
+    <string name="label_totp">动态验证码（TOTP）</string>
+    <string name="totp_not_set">未绑定。可扫描身份验证器二维码，或手动粘贴密钥</string>
+    <string name="totp_set">已绑定：%1$s（每 30 秒刷新）</string>
+    <string name="totp_scan">扫码绑定</string>
+    <string name="totp_manual">手动输入密钥</string>
+    <string name="totp_clear">清除动态验证码</string>
+    <string name="totp_copy">复制验证码</string>
+    <string name="totp_copied">验证码已复制</string>
+    <string name="totp_remain">剩余 %1$d 秒</string>
+    <string name="totp_refreshing">已刷新</string>
+    <string name="totp_invalid">密钥无效，请检查 otpauth 链接或 Base32 密钥</string>
+    <string name="totp_manual_title">手动输入密钥</string>
+    <string name="totp_manual_hint">粘贴 otpauth:// 链接或 Base32 密钥（如 JBSWY3DPEHPK3PXP）</string>
+    <string name="totp_scan_hint">扫描身份验证器中的 TOTP 二维码</string>
+    <string name="totp_empty_input">请输入密钥内容</string>
+
+    <!-- 修改主密码 -->
+    <string name="change_master_menu">修改主密码</string>
+    <string name="change_master_title">修改主密码</string>
+    <string name="change_master_current">当前主密码</string>
+    <string name="change_master_new">新主密码（至少 6 位）</string>
+    <string name="change_master_confirm">确认新主密码</string>
+    <string name="change_master_ok">确认修改</string>
+    <string name="change_master_running">正在重新加密全部数据…</string>
+    <string name="change_master_success">主密码已修改，全部数据已重新加密</string>
+    <string name="change_master_same">新主密码不能与当前主密码相同</string>
+    <string name="change_master_mismatch">两次输入的新主密码不一致</string>
+    <string name="change_master_unlock_reset">已设置的手势 / 指纹解锁已失效，请重新设置。</string>
+    <string name="change_master_wrong_current">当前主密码不正确</string>
+    <string name="change_master_failed">修改失败：%1$s</string>
+    <string name="change_master_note">修改主密码会重新加密库内全部内容（含密码历史与动态验证码密钥）。修改后已设置的手势 / 指纹解锁将失效，需要重新设置；旧备份文件仍使用导出时的主密码打开。</string>
+    <string name="change_master_need_unlock">请先解锁后再修改主密码</string>
 </resources>

@@ -184,6 +184,64 @@
                 app:backgroundTint="@null"/>
         </LinearLayout>
 
+        <!-- 动态验证码卡片（TOTP） -->
+        <LinearLayout
+            android:id="@+id/totpBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="18dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/label_totp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tvTotpCode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.15"
+                android:textColor="@color/text_main"
+                android:textIsSelectable="true"
+                android:textSize="30sp"
+                android:textStyle="bold" />
+
+            <ProgressBar
+                android:id="@+id/pbTotp"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="6dp"
+                android:layout_marginTop="10dp"
+                android:max="30"
+                android:progress="30" />
+
+            <TextView
+                android:id="@+id/tvTotpCountdown"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnTotpCopy"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_button_primary"
+                android:text="@string/totp_copy"
+                android:textColor="@color/white"
+                app:backgroundTint="@null" />
+        </LinearLayout>
+
         <!-- 手势 -->
         <LinearLayout
             android:id="@+id/gestureBox"

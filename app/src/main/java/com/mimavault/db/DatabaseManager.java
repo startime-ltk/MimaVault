@@ -38,6 +38,7 @@ public class DatabaseManager {
                     "note TEXT," +
                     "image_path TEXT," +
                     "gesture_seq TEXT," +
+                    "totp_secret_enc TEXT," +
                     "sync_status TEXT DEFAULT 'local'," +
                     "created_at INTEGER," +
                     "updated_at INTEGER," +
@@ -63,6 +64,7 @@ public class DatabaseManager {
         ensureColumn("entries", "category", "TEXT DEFAULT '网站'");
         ensureColumn("entries", "sync_status", "TEXT DEFAULT 'local'");
         ensureColumn("entries", "deleted_at", "INTEGER");
+        ensureColumn("entries", "totp_secret_enc", "TEXT");
     }
 
     private void ensureColumn(String table, String column, String definition) {
@@ -158,6 +160,11 @@ public class DatabaseManager {
         return query("SELECT * FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC", null);
     }
 
+    /** 查询全部条目（含回收站），用于修改主密码时的全量重加密 */
+    public List<Entry> getAllEntriesIncludingTrashed() {
+        return query("SELECT * FROM entries ORDER BY id ASC", null);
+    }
+
     public List<Entry> getAllEntries() {
         return query("SELECT * FROM entries WHERE deleted_at IS NULL ORDER BY updated_at DESC", null);
     }
@@ -244,6 +251,33 @@ public class DatabaseManager {
         return list;
     }
 
+    /** 查询全部历史密码（跨条目），用于修改主密码时的全量重加密 */
+    public List<PasswordHistoryItem> listAllPasswordHistory() {
+        List<PasswordHistoryItem> list = new ArrayList<>();
+        try (Cursor c = db.rawQuery(
+                "SELECT id, entry_id, password_enc, changed_at FROM password_history ORDER BY id ASC", null)) {
+            while (c.moveToNext()) {
+                PasswordHistoryItem it = new PasswordHistoryItem();
+                it.setId(c.getLong(c.getColumnIndexOrThrow("id")));
+                it.setEntryId(c.getLong(c.getColumnIndexOrThrow("entry_id")));
+                it.setPasswordEnc(c.getString(c.getColumnIndexOrThrow("password_enc")));
+                long t = c.getLong(c.getColumnIndexOrThrow("changed_at"));
+                if (t > 0) {
+                    it.setChangedAt(new Date(t));
+                }
+                list.add(it);
+            }
+        }
+        return list;
+    }
+
+    /** 更新单条历史密码的密文（修改主密码重加密使用，保留原 changed_at） */
+    public void updatePasswordHistoryEnc(long historyId, String passwordEnc) {
+        ContentValues cv = new ContentValues();
+        cv.put("password_enc", passwordEnc);
+        db.update("password_history", cv, "id=?", new String[]{String.valueOf(historyId)});
+    }
+
     /** 历史条数 */
     public int countPasswordHistory(long entryId) {
         try (Cursor c = db.rawQuery("SELECT COUNT(*) FROM password_history WHERE entry_id=?",
@@ -284,6 +318,7 @@ public class DatabaseManager {
         cv.put("note", e.getNote());
         cv.put("image_path", e.getImagePath());
         cv.put("gesture_seq", e.getGestureSeq());
+        cv.put("totp_secret_enc", e.getTotpSecretEnc());
         cv.put("sync_status", e.getSyncStatus() == null ? "local" : e.getSyncStatus());
         if (e.getDeletedAt() != null) {
             cv.put("deleted_at", e.getDeletedAt().getTime());
@@ -308,6 +343,7 @@ public class DatabaseManager {
                 e.setNote(c.getString(c.getColumnIndexOrThrow("note")));
                 e.setImagePath(c.getString(c.getColumnIndexOrThrow("image_path")));
                 e.setGestureSeq(c.getString(c.getColumnIndexOrThrow("gesture_seq")));
+                e.setTotpSecretEnc(c.getString(c.getColumnIndexOrThrow("totp_secret_enc")));
                 e.setSyncStatus(c.getString(c.getColumnIndexOrThrow("sync_status")));
                 long created = c.getLong(c.getColumnIndexOrThrow("created_at"));
                 long updated = c.getLong(c.getColumnIndexOrThrow("updated_at"));

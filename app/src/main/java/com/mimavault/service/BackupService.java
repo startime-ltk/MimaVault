@@ -83,6 +83,8 @@ public final class BackupService {
             item.email = e.getEmail();
             item.note = e.getNote();
             item.gestureSeq = e.getGestureSeq();
+            item.totpSecret = (e.getTotpSecretEnc() == null || e.getTotpSecretEnc().isEmpty())
+                    ? null : "encrypted:" + e.getTotpSecretEnc();
             item.syncStatus = e.getSyncStatus();
             item.createdAt = e.getCreatedAt();
             item.updatedAt = e.getUpdatedAt();
@@ -209,6 +211,19 @@ public final class BackupService {
                         android.util.Log.w("MimaVault", "条目密码重加密失败，保留原密文: "
                                 + (item.platform == null ? "" : item.platform) + "/"
                                 + (item.account == null ? "" : item.account));
+                    }
+                }
+                // TOTP 密钥同样做「备份密钥解 → 库密钥加密」，保证跨库可继续生成验证码
+                String totp = e.getTotpSecretEnc();
+                if (totp != null && !totp.isEmpty()) {
+                    try {
+                        String plain = AesUtil.decrypt(totp, backupKey);
+                        e.setTotpSecretEnc(AesUtil.encrypt(plain, localKey));
+                    } catch (Exception ex) {
+                        android.util.Log.w("MimaVault", "TOTP 密钥重加密失败，已丢弃该字段: "
+                                + (item.platform == null ? "" : item.platform) + "/"
+                                + (item.account == null ? "" : item.account));
+                        e.setTotpSecretEnc(null);
                     }
                 }
             }

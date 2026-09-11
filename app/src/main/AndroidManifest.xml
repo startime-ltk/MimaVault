@@ -32,6 +32,7 @@
         <activity android:name=".ui.TrashActivity" android:exported="false" />
         <activity android:name=".ui.SecurityReportActivity" android:exported="false" />
         <activity android:name=".ui.PasswordHistoryActivity" android:exported="false" />
+        <activity android:name=".ui.ChangeMasterPasswordActivity" android:exported="false" />
     </application>
 
 </manifest>

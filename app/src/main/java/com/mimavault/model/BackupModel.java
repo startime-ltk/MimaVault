@@ -31,6 +31,7 @@ public final class BackupModel {
         public String imageBase64;
         public String imageName;
         public String gestureSeq;
+        public String totpSecret;    // "encrypted:<密文>" 或 null（TOTP 密钥，PC 端无此字段则忽略）
         public String syncStatus;
         public Date createdAt;
         public Date updatedAt;
@@ -48,6 +49,9 @@ public final class BackupModel {
             e.setEmail(email);
             e.setNote(note);
             e.setGestureSeq(gestureSeq);
+            if (totpSecret != null && totpSecret.startsWith("encrypted:")) {
+                e.setTotpSecretEnc(totpSecret.substring("encrypted:".length()));
+            }
             e.setSyncStatus(syncStatus == null ? "local" : syncStatus);
             e.setCreatedAt(createdAt);
             e.setUpdatedAt(updatedAt);

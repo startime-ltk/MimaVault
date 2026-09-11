@@ -23,6 +23,7 @@ public class Entry {
     private String note;          // 备注
     private String imagePath;     // 附件图片相对路径（data/images/ 下）
     private String gestureSeq;    // 九宫格手势数字序列，如 "1,4,7,8,9"
+    private String totpSecretEnc; // TOTP 动态验证码（otpauth:// 链接，AES-256-GCM 加密存储，可空）
     private String syncStatus;    // 同步状态（默认 local，为后期手机互联预留）
     private Date createdAt;       // 创建时间
     private Date updatedAt;       // 更新时间
@@ -111,6 +112,14 @@ public class Entry {
 
     public void setGestureSeq(String gestureSeq) {
         this.gestureSeq = gestureSeq;
+    }
+
+    public String getTotpSecretEnc() {
+        return totpSecretEnc;
+    }
+
+    public void setTotpSecretEnc(String totpSecretEnc) {
+        this.totpSecretEnc = totpSecretEnc;
     }
 
     public String getSyncStatus() {

@@ -132,6 +132,108 @@ public class PasswordService {
         return db.insertEntry(entry);
     }
 
+    /** 改主密码的结果：新的派生密钥 + 新的盐 / 迭代次数，供会话与手势/指纹绑定刷新 */
+    public static final class MasterChangeResult {
+        public final SecretKey newKey;
+        public final String newSaltHex;
+        public final int iterations;
+
+        MasterChangeResult(SecretKey newKey, String newSaltHex, int iterations) {
+            this.newKey = newKey;
+            this.newSaltHex = newSaltHex;
+            this.iterations = iterations;
+        }
+    }
+
+    /**
+     * 修改主密码：全量重加密（条目密码 + TOTP 密钥 + 历史密码）。
+     *
+     * 采用「换盐」的方式重新派生密钥并重写 master_hash，
+     * 与改密前的备份文件格式完全一致（pbkdf2$迭代$盐$哈希），因此旧备份仍可用旧主密码导入。
+     * 任何一条密文无法用当前主密码解密时立即中止，保证不会出现半途损坏的中间状态。
+     *
+     * @throws IllegalStateException 当前密码错误 / 新密码非法 / 预检失败
+     */
+    public MasterChangeResult changeMasterPassword(char[] currentPassword, char[] newPassword) {
+        String stored = db.getMasterHash();
+        if (stored == null || stored.isEmpty()) {
+            throw new IllegalStateException("尚未初始化主密码");
+        }
+        if (!AesUtil.verifyPassword(currentPassword, stored)) {
+            throw new IllegalStateException("当前主密码不正确");
+        }
+        if (newPassword == null || newPassword.length < 6) {
+            throw new IllegalStateException("新主密码长度至少 6 位");
+        }
+        if (java.util.Arrays.equals(currentPassword, newPassword)) {
+            throw new IllegalStateException("新主密码不能与当前主密码相同");
+        }
+
+        SecretKey oldKey = deriveKey(currentPassword);
+        byte[] salt = AesUtil.generateSalt();
+        SecretKey newKey = AesUtil.deriveKeyPbkdf2(newPassword, salt, AesUtil.PBKDF2_ITERATIONS);
+
+        // 第一步：预检（只解密不写入），确保全库密文都能用当前主密码解开
+        List<Entry> affected = new ArrayList<>();
+        for (Entry e : db.getAllEntriesIncludingTrashed()) {
+            boolean need = false;
+            if (e.getPasswordEnc() != null && !e.getPasswordEnc().isEmpty()) {
+                decryptOrThrow(e.getPasswordEnc(), oldKey);
+                need = true;
+            }
+            if (e.getTotpSecretEnc() != null && !e.getTotpSecretEnc().isEmpty()) {
+                decryptOrThrow(e.getTotpSecretEnc(), oldKey);
+                need = true;
+            }
+            if (need) {
+                affected.add(e);
+            }
+        }
+        List<PasswordHistoryItem> historyAffected = new ArrayList<>();
+        for (PasswordHistoryItem it : db.listAllPasswordHistory()) {
+            if (it.getPasswordEnc() == null || it.getPasswordEnc().isEmpty()) {
+                continue;
+            }
+            decryptOrThrow(it.getPasswordEnc(), oldKey);
+            historyAffected.add(it);
+        }
+
+        // 第二步：全量重加密写库
+        for (Entry e : affected) {
+            if (e.getPasswordEnc() != null && !e.getPasswordEnc().isEmpty()) {
+                e.setPasswordEnc(AesUtil.encrypt(AesUtil.decrypt(e.getPasswordEnc(), oldKey), newKey));
+            }
+            if (e.getTotpSecretEnc() != null && !e.getTotpSecretEnc().isEmpty()) {
+                e.setTotpSecretEnc(AesUtil.encrypt(AesUtil.decrypt(e.getTotpSecretEnc(), oldKey), newKey));
+            }
+            db.updateEntry(e);
+        }
+        for (PasswordHistoryItem it : historyAffected) {
+            db.updatePasswordHistoryEnc(it.getId(),
+                    AesUtil.encrypt(AesUtil.decrypt(it.getPasswordEnc(), oldKey), newKey));
+        }
+
+        // 第三步：最后落盘新的主密码记录
+        db.saveMasterHash(AesUtil.buildPbkdf2Record(newPassword, salt, AesUtil.PBKDF2_ITERATIONS));
+        return new MasterChangeResult(newKey, bytesToHex(salt), AesUtil.PBKDF2_ITERATIONS);
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    private void decryptOrThrow(String cipher, SecretKey key) {
+        try {
+            AesUtil.decrypt(cipher, key);
+        } catch (Exception e) {
+            throw new IllegalStateException("数据无法用当前主密码解密，已中止修改（数据未改动）", e);
+        }
+    }
+
     /**
      * 更新条目。keepPassword 为 false 时写入新密码，并把改密前的旧密码留档到历史表，
      * 供后续回溯查看与一键恢复（历史同样为密文存储，明文不落盘）。
