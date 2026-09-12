@@ -21,7 +21,7 @@ public class PasswordService {
     public enum VerifyResult {
         /** 校验通过（新格式） */
         MATCH,
-        /** 校验通过但为旧 SHA-256 格式，需要一次性迁移到 PBKDF2 */
+        /** 校验通过，但密库档位落后（旧 SHA-256 格式 / 非统一迭代次数），需要一次性迁移重加密 */
         MATCH_NEED_UPGRADE,
         /** 密码错误 */
         MISMATCH
@@ -62,7 +62,12 @@ public class PasswordService {
             boolean ok = stored.equalsIgnoreCase(AesUtil.sha256Hex(new String(masterPassword)));
             return ok ? VerifyResult.MATCH_NEED_UPGRADE : VerifyResult.MISMATCH;
         }
-        return AesUtil.verifyPassword(masterPassword, stored) ? VerifyResult.MATCH : VerifyResult.MISMATCH;
+        if (!AesUtil.verifyPassword(masterPassword, stored)) {
+            return VerifyResult.MISMATCH;
+        }
+        // 双端统一档位：历史库（600000 等非当前统一档）验证通过后触发一次性迁移重加密
+        return AesUtil.iterationsFromRecord(stored) == AesUtil.PBKDF2_ITERATIONS
+                ? VerifyResult.MATCH : VerifyResult.MATCH_NEED_UPGRADE;
     }
 
     /**
@@ -97,7 +102,7 @@ public class PasswordService {
         return parts[2];
     }
 
-    /** 当前库主密码哈希中的迭代次数；未初始化或旧格式返回默认值 600000 */
+    /** 当前库主密码哈希中的迭代次数；未初始化或旧格式返回当前统一档位（210000） */
     public int getMasterIterations() {
         String stored = db.getMasterHash();
         if (stored == null || !stored.startsWith(AesUtil.PBKDF2_PREFIX)) {
@@ -107,73 +112,117 @@ public class PasswordService {
     }
 
     /**
-     * 一次性迁移：旧 SHA-256 加密 -> PBKDF2 新密钥
-     * 流程：用旧密钥逐条解密 -> 用新密钥重新加密写回 -> 更新存储为新格式
-     * 先预检全部条目可解密，再执行写库，避免迁移中途失败导致数据不可用
+     * 一次性迁移到双端统一档位（PBKDF2 210000 档）。
+     * 兼容两种来源：① 旧 SHA-256 库；② 旧迭代档位（如 600000）的 PBKDF2 库。
+     * 档位变化会改变派生密钥，两种来源同路径处理：旧钥解密 → 新钥重加密 → 最后更新 master_hash。
+     * 先预检全部密文可解密再写库，保证迁移中途失败时旧数据仍可用旧主密码打开。
      */
     public void upgradeToPbkdf2(char[] masterPassword) {
         String stored = db.getMasterHash();
-        if (stored == null || !AesUtil.isLegacyRecord(stored)) {
-            return; // 已是新格式，无需迁移
+        if (stored == null || stored.isEmpty()) {
+            return;
+        }
+        if (!AesUtil.isLegacyRecord(stored)
+                && AesUtil.iterationsFromRecord(stored) == AesUtil.PBKDF2_ITERATIONS) {
+            return; // 已是统一档位，无需迁移
         }
 
-        // 1. 派生旧密钥（SHA-256）与新密钥（PBKDF2 随机盐）
-        SecretKey oldKey = AesUtil.deriveKey(new String(masterPassword));
+        // 1. 派生旧密钥（旧 SHA-256 / 旧档位 PBKDF2）与新密钥（新随机盐 + 统一档位）
+        SecretKey oldKey = deriveKey(masterPassword);
         byte[] salt = AesUtil.generateSalt();
         SecretKey newKey = AesUtil.deriveKeyPbkdf2(masterPassword, salt, AesUtil.PBKDF2_ITERATIONS);
 
-        List<Entry> entries = db.getAllEntries();
-        List<Entry> affected = new java.util.ArrayList<>();
+        // 2. 全量重加密（条目密码 + 动态验证码 + 历史密码，含回收站条目）
+        reencryptAll(oldKey, newKey);
 
-        // 2. 预检：先解密验证所有密文，收集需重加密条目
-        for (Entry e : entries) {
+        // 3. 更新存储为统一档位（最后一步，保证失败时旧数据仍可用旧密码打开）
+        db.saveMasterHash(AesUtil.buildPbkdf2Record(masterPassword, salt, AesUtil.PBKDF2_ITERATIONS));
+    }
+
+    /**
+     * 全量重加密：用新密钥重写条目密码、动态验证码与历史密码密文（含回收站条目，这些密文与主密钥同钥）。
+     * 活跃条目严格「预检不通过即中止」，避免产生半途损坏的库；
+     * 回收站条目与历史记录中确有无法解密的旧残留时跳过，不阻塞主流程。
+     */
+    private void reencryptAll(SecretKey oldKey, SecretKey newKey) {
+        List<Entry> active = db.getAllEntries();
+        java.util.Set<Long> activeIds = new java.util.HashSet<>();
+        for (Entry e : active) {
+            activeIds.add(e.getId());
+        }
+
+        // 全量集合（含回收站）
+        List<Entry> all = db.getAllEntriesIncludingTrashed();
+
+        // 1. 预检：活跃条目解不开立即中止；回收站条目解不开仅跳过
+        for (Entry e : all) {
+            boolean strict = activeIds.contains(e.getId());
             String enc = e.getPasswordEnc();
+            if (enc != null && !enc.isEmpty() && !canDecrypt(enc, oldKey) && strict) {
+                throw new IllegalStateException(
+                        "迁移预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】无法用当前主密码解密，已中止迁移（数据未改动）");
+            }
+            String totpEnc = e.getTotpSecretEnc();
+            if (totpEnc != null && !totpEnc.isEmpty() && !canDecrypt(totpEnc, oldKey) && strict) {
+                throw new IllegalStateException(
+                        "迁移预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】的动态验证码密钥无法用当前主密码解密，已中止迁移（数据未改动）");
+            }
+        }
+
+        // 2. 写回：同一条目一次性写完密码与动态验证码
+        for (Entry e : all) {
+            boolean changed = false;
+            String enc = e.getPasswordEnc();
+            if (enc != null && !enc.isEmpty()) {
+                String re = tryReencrypt(enc, oldKey, newKey);
+                if (re != null) {
+                    e.setPasswordEnc(re);
+                    changed = true;
+                }
+            }
+            String totpEnc = e.getTotpSecretEnc();
+            if (totpEnc != null && !totpEnc.isEmpty()) {
+                String re = tryReencrypt(totpEnc, oldKey, newKey);
+                if (re != null) {
+                    e.setTotpSecretEnc(re);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                db.updateEntry(e);
+            }
+        }
+
+        // 3. 历史密码密文（与条目同源同钥；早期遗留无法解密的记录跳过）
+        for (PasswordHistoryItem h : db.listAllPasswordHistory()) {
+            String enc = h.getPasswordEnc();
             if (enc == null || enc.isEmpty()) {
                 continue;
             }
-            try {
-                AesUtil.decrypt(enc, oldKey);
-                affected.add(e);
-            } catch (Exception ex) {
-                throw new IllegalStateException(
-                        "迁移预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】无法用当前主密码解密，已中止迁移（数据未改动）", ex);
+            String re = tryReencrypt(enc, oldKey, newKey);
+            if (re != null) {
+                db.updatePasswordHistoryEnc(h.getId(), re);
             }
         }
+    }
 
-        // 3. 执行重加密写回
-        for (Entry e : affected) {
-            String plain = AesUtil.decrypt(e.getPasswordEnc(), oldKey);
-            try {
-                e.setPasswordEnc(AesUtil.encrypt(plain, newKey));
-                db.updateEntry(e);
-            } finally {
-                // plain 为 String 由 GC 回收，密文侧无明文残留
-            }
+    /** 密文能否用指定密钥解开 */
+    private static boolean canDecrypt(String cipher, SecretKey key) {
+        try {
+            AesUtil.decrypt(cipher, key);
+            return true;
+        } catch (Exception e) {
+            return false;
         }
+    }
 
-        // 3.5 TOTP 密文：与密码同钥加密，不迁移则升级后动态验证码无法生成（先全量预检再写回）
-        List<Entry> totpAffected = new ArrayList<>();
-        for (Entry e : entries) {
-            String totpEnc = e.getTotpSecretEnc();
-            if (totpEnc == null || totpEnc.isEmpty()) {
-                continue;
-            }
-            try {
-                AesUtil.decrypt(totpEnc, oldKey);
-                totpAffected.add(e);
-            } catch (Exception ex) {
-                throw new IllegalStateException(
-                        "迁移预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】的动态验证码密钥无法用当前主密码解密，已中止迁移（数据未改动）", ex);
-            }
+    /** 旧钥解密 → 新钥重加密；解不开返回 null（是否中止由调用方决定） */
+    private static String tryReencrypt(String cipher, SecretKey oldKey, SecretKey newKey) {
+        try {
+            return AesUtil.encrypt(AesUtil.decrypt(cipher, oldKey), newKey);
+        } catch (Exception e) {
+            return null;
         }
-        for (Entry e : totpAffected) {
-            String plain = AesUtil.decrypt(e.getTotpSecretEnc(), oldKey);
-            e.setTotpSecretEnc(AesUtil.encrypt(plain, newKey));
-            db.updateEntry(e);
-        }
-
-        // 4. 更新存储为新格式（最后一步，保证失败时旧数据仍可用旧密码打开）
-        db.saveMasterHash(AesUtil.buildPbkdf2Record(masterPassword, salt, AesUtil.PBKDF2_ITERATIONS));
     }
 
     /**
@@ -201,64 +250,8 @@ public class PasswordService {
         byte[] salt = AesUtil.generateSalt();
         SecretKey newKey = AesUtil.deriveKeyPbkdf2(newPassword, salt, AesUtil.PBKDF2_ITERATIONS);
 
-        // 3. 预检：先解密验证所有密文，收集需重加密条目
-        List<Entry> entries = db.getAllEntries();
-        List<Entry> affected = new java.util.ArrayList<>();
-        for (Entry e : entries) {
-            String enc = e.getPasswordEnc();
-            if (enc == null || enc.isEmpty()) {
-                continue;
-            }
-            try {
-                AesUtil.decrypt(enc, oldKey);
-                affected.add(e);
-            } catch (Exception ex) {
-                throw new IllegalStateException(
-                        "修改主密码预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】无法用当前主密码解密，已中止（数据未改动）", ex);
-            }
-        }
-
-        // 4. 执行重加密写回
-        for (Entry e : affected) {
-            String plain = AesUtil.decrypt(e.getPasswordEnc(), oldKey);
-            e.setPasswordEnc(AesUtil.encrypt(plain, newKey));
-            db.updateEntry(e);
-        }
-
-        // 4.5 TOTP 密钥密文同步重加密（与密码同钥，不改则改主密码后动态验证码无法生成）
-        List<Entry> totpAffected = new ArrayList<>();
-        for (Entry e : entries) {
-            String totpEnc = e.getTotpSecretEnc();
-            if (totpEnc == null || totpEnc.isEmpty()) {
-                continue;
-            }
-            try {
-                AesUtil.decrypt(totpEnc, oldKey);
-                totpAffected.add(e);
-            } catch (Exception ex) {
-                throw new IllegalStateException(
-                        "修改主密码预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】的动态验证码密钥无法解密，已中止（数据未改动）", ex);
-            }
-        }
-        for (Entry e : totpAffected) {
-            String plain = AesUtil.decrypt(e.getTotpSecretEnc(), oldKey);
-            e.setTotpSecretEnc(AesUtil.encrypt(plain, newKey));
-            db.updateEntry(e);
-        }
-
-        // 4.6 历史密码密文同步重加密（历史与条目同源同钥，不改则改主密码后历史将无法解密）
-        for (PasswordHistoryItem h : db.listAllPasswordHistory()) {
-            String enc = h.getPasswordEnc();
-            if (enc == null || enc.isEmpty()) {
-                continue;
-            }
-            try {
-                String plain = AesUtil.decrypt(enc, oldKey);
-                db.updatePasswordHistoryEnc(h.getId(), AesUtil.encrypt(plain, newKey));
-            } catch (Exception ignore) {
-                // 更早版本遗留的、无法用当前密钥解密的历史记录：跳过，不阻塞主流程
-            }
-        }
+        // 3~4. 全量重加密（条目密码 + 动态验证码 + 历史密码，含回收站条目；预检不过即中止）
+        reencryptAll(oldKey, newKey);
 
         // 5. 更新主密码哈希（最后一步，失败时旧数据仍可用旧密码打开）
         db.saveMasterHash(AesUtil.buildPbkdf2Record(newPassword, salt, AesUtil.PBKDF2_ITERATIONS));

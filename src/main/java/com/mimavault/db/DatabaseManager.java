@@ -300,6 +300,22 @@ public class DatabaseManager {
         return list;
     }
 
+    /** 查询全部条目（含回收站），用于改主密码 / 档位迁移时的全量重加密 */
+    public List<Entry> getAllEntriesIncludingTrashed() {
+        List<Entry> list = new ArrayList<>();
+        String sql = "SELECT * FROM entries ORDER BY id ASC";
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapRow(rs));
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("查询条目失败", e);
+        }
+        return list;
+    }
+
     /**
      * 组合查询：按分类过滤 + 关键词模糊搜索（平台/账号/手机/邮箱）
      *
