@@ -239,14 +239,33 @@ public class UnlockActivity extends AppCompatActivity {
                 });
                 return;
             }
-            if (result == PasswordService.VerifyResult.MATCH_NEED_UPGRADE) {
+            final boolean migrated = result == PasswordService.VerifyResult.MATCH_NEED_UPGRADE;
+            if (migrated) {
+                // 档位统一迁移：拉齐为 210000 档（PC / 安卓一致）
                 service.upgradeToPbkdf2(pwd);
             }
             SecretKey key = service.deriveKey(pwd);
             VaultSession.get().open(pwd, key, service.getMasterSaltHex(), service.getMasterIterations());
             GestureUnlockHelper.resetFails(UnlockActivity.this);
+            if (migrated) {
+                // 迁移后主密钥与盐均已变化：旧的手势/指纹绑定只能用旧密钥解开 → 必须刷新或清除
+                if (GestureUnlockHelper.isGestureSet(UnlockActivity.this)) {
+                    // 手势序列此时未知，无法重建绑定，清除后由用户在设置中重新设置
+                    GestureUnlockHelper.clear(UnlockActivity.this);
+                }
+                if (BiometricHelper.hasStoredKey(UnlockActivity.this)) {
+                    boolean ok = BiometricHelper.storeVaultKey(UnlockActivity.this, key.getEncoded(),
+                            service.getMasterSaltHex(), service.getMasterIterations());
+                    if (!ok) {
+                        BiometricHelper.clearStoredKey(UnlockActivity.this);
+                    }
+                }
+            }
             main.post(() -> {
                 setBusy(false);
+                if (migrated) {
+                    Toast.makeText(UnlockActivity.this, R.string.kdf_unified_hint, Toast.LENGTH_LONG).show();
+                }
                 enterMain();
             });
         }).start();
