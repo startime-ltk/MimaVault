@@ -31,10 +31,11 @@ public final class AesUtil {
 
     public static final String PBKDF2_ALGO = "PBKDF2WithHmacSHA256";
     public static final int PBKDF2_SALT_LENGTH = 16;   // 盐 16 字节
-    // 与安卓端统一档位：210000（OWASP 2021 推荐档），
-    // record 为自描述格式(pbkdf2$iter$salt$hash)，600000 老库验证仍走记录内档位，
+    // 与安卓端统一档位：600000（桌面端≥600000、移动端≥310000 取两端可接受的最优统一值，
+    // PC 实测 PBKDF2WithHmacSHA256 600000 档解锁约 90ms）。
+    // record 为自描述格式(pbkdf2$iter$salt$hash)，210000/310000 等历史档位验证仍走记录内档位，
     // 解锁成功后由 PasswordService 自动迁移重加密至本档位，保证双端密库互通。
-    public static final int PBKDF2_ITERATIONS = 210000; // 慢哈希迭代次数
+    public static final int PBKDF2_ITERATIONS = 600000; // 慢哈希迭代次数
     public static final int PBKDF2_KEY_LENGTH = 256;    // 输出 256 位
     public static final String PBKDF2_PREFIX = "pbkdf2$";
 

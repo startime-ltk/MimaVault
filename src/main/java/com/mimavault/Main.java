@@ -22,6 +22,12 @@ public class Main {
         DatabaseManager db = new DatabaseManager();
         db.init();
         PasswordService service = new PasswordService(db);
+        // 回收站自动过期：启动时清除超过保留天数（30 天）的软删除条目
+        try {
+            service.purgeExpiredTrashed();
+        } catch (Exception e) {
+            System.err.println("回收站过期清理失败（不影响启动）: " + e.getMessage());
+        }
 
         SwingUtilities.invokeLater(() -> {
             // 应用全局鲜艳主题（仅视觉层）

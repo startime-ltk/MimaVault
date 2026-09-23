@@ -1,5 +1,6 @@
 package com.mimavault.ui;
 
+import com.mimavault.service.LoginLockoutManager;
 import com.mimavault.service.PasswordService;
 
 import javax.swing.*;
@@ -9,19 +10,16 @@ import java.util.Arrays;
 /**
  * 主密码登录/设置对话框
  * - 首次启动：设置主密码
- * - 之后启动：验证主密码（PBKDF2），连续输错 5 次锁定 30 秒
- * - 检测到旧版 SHA-256 哈希时自动触发一次性迁移升级
+ * - 之后启动：验证主密码（PBKDF2），连续输错 5 次锁定 30 分钟（持久化，跨重启保留）
+ * - 检测到旧版 SHA-256 哈希 / 旧迭代档位时自动触发一次性迁移升级
  * - 密码明文以 char[] 承载，用完即清
  * <p>
  * 视觉：渐变背景 + 居中圆角卡片 + 艺术字标题 + 圆角输入框 + 渐变按钮
  */
 public class LoginDialog extends JDialog {
 
-    /** 最大失败次数 / 锁定时长（秒） */
-    private static final int MAX_FAILURES = 5;
-    private static final int LOCK_SECONDS = 30;
-
     private final PasswordService service;
+    private final LoginLockoutManager lockout;
     private final boolean setupMode;
     private final JPasswordField pwdField = new JPasswordField(16);
     private final JPasswordField pwdField2 = new JPasswordField(16);
@@ -30,14 +28,14 @@ public class LoginDialog extends JDialog {
 
     private boolean authenticated = false;
     private char[] masterPassword = null;
-    private int failedCount = 0;
     private boolean locked = false;
     private Timer lockTimer;
-    private int lockRemaining;
+    private long lockRemainingMillis;
 
     public LoginDialog(Window owner, PasswordService service, boolean setupMode) {
         super(owner, setupMode ? "设置主密码" : "密匣 MimaVault - 请输入主密码", ModalityType.APPLICATION_MODAL);
         this.service = service;
+        this.lockout = new LoginLockoutManager(service.getDb());
         this.setupMode = setupMode;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setIconImage(UiTheme.getAppIcon());
@@ -94,7 +92,7 @@ public class LoginDialog extends JDialog {
 
         JLabel hint = new JLabel(setupMode
                 ? "主密码用于加密全部数据，请务必牢记，丢失无法找回"
-                : "提示：主密码用于解密本地数据，忘记无法找回；连续输错 5 次将锁定 30 秒");
+                : "提示：主密码用于解密本地数据，忘记无法找回；连续输错 5 次将锁定 30 分钟");
         hint.setFont(new Font("Microsoft YaHei", Font.PLAIN, 11));
         hint.setForeground(UiTheme.TEXT_SUB);
         gbc.gridx = 0;
@@ -133,6 +131,11 @@ public class LoginDialog extends JDialog {
         setLocationRelativeTo(owner);
         setResizable(false);
         getRootPane().setDefaultButton(okBtn);
+
+        // 启动即检查持久化锁定状态（上次进程遗留的 30 分钟锁定）
+        if (!setupMode && lockout.isLocked()) {
+            startLock();
+        }
     }
 
     private void onOk() {
@@ -166,7 +169,7 @@ public class LoginDialog extends JDialog {
                 PasswordService.VerifyResult result = service.verifyMasterPassword(pwd);
                 if (result == PasswordService.VerifyResult.MATCH
                         || result == PasswordService.VerifyResult.MATCH_NEED_UPGRADE) {
-                    // 旧格式数据：一次性迁移到 PBKDF2 新密钥
+                    // 旧格式数据：一次性迁移到 PBKDF2 统一档位
                     if (result == PasswordService.VerifyResult.MATCH_NEED_UPGRADE) {
                         statusLabel.setText("正在升级加密方案...");
                         try {
@@ -176,16 +179,17 @@ public class LoginDialog extends JDialog {
                             return;
                         }
                     }
-                    failedCount = 0;
+                    lockout.onSuccess();
                     authenticated = true;
                     masterPassword = Arrays.copyOf(pwd, pwd.length);
                     dispose();
                 } else {
-                    failedCount++;
-                    if (failedCount >= MAX_FAILURES) {
+                    boolean triggered = lockout.recordFailure();
+                    if (triggered) {
+                        statusLabel.setText("尝试次数过多，已锁定");
                         startLock();
                     } else {
-                        statusLabel.setText("主密码错误（" + failedCount + "/" + MAX_FAILURES + "），请重试");
+                        statusLabel.setText("主密码错误（" + lockout.remainingAttempts() + " 次机会），请重试");
                         pwdField.setText("");
                         pwdField.requestFocus();
                     }
@@ -196,17 +200,16 @@ public class LoginDialog extends JDialog {
         }
     }
 
-    /** 锁定 30 秒：禁用按钮 + 倒计时显示（仅进程内存，不持久化） */
+    /** 锁定 30 分钟：禁用输入 + 倒计时显示（计数与截止持久化落库，跨重启保留） */
     private void startLock() {
         locked = true;
-        failedCount = 0;
-        lockRemaining = LOCK_SECONDS;
         okBtn.setEnabled(false);
         pwdField.setEnabled(false);
-        statusLabel.setText("尝试次数过多，请 " + lockRemaining + " 秒后重试");
+        lockRemainingMillis = lockout.remainingLockMillis();
+        updateLockStatus();
         lockTimer = new Timer(1000, e -> {
-            lockRemaining--;
-            if (lockRemaining <= 0) {
+            lockRemainingMillis = lockout.remainingLockMillis();
+            if (lockRemainingMillis <= 0) {
                 lockTimer.stop();
                 locked = false;
                 okBtn.setEnabled(true);
@@ -215,10 +218,17 @@ public class LoginDialog extends JDialog {
                 pwdField.setText("");
                 pwdField.requestFocus();
             } else {
-                statusLabel.setText("尝试次数过多，请 " + lockRemaining + " 秒后重试");
+                updateLockStatus();
             }
         });
         lockTimer.start();
+    }
+
+    private void updateLockStatus() {
+        long totalSec = (lockRemainingMillis + 999) / 1000;
+        long min = totalSec / 60;
+        long sec = totalSec % 60;
+        statusLabel.setText("尝试次数过多，请 " + min + " 分 " + sec + " 秒后重试");
     }
 
     /** 是否通过验证 */

@@ -36,6 +36,10 @@ public class PasswordService {
         this.db = db;
     }
 
+    public DatabaseManager getDb() {
+        return db;
+    }
+
     /** 是否已初始化主密码 */
     public boolean isInitialized() {
         return db.isMasterSet();
@@ -400,6 +404,15 @@ public class PasswordService {
     /** 清空回收站 */
     public void purgeAllTrashed() {
         db.purgeAllTrashed();
+    }
+
+    /** 回收站保留天数：超过该天数的软删除条目在启动/进入回收站时自动清除（与安卓端统一） */
+    public static final long TRASH_RETENTION_DAYS = 30L;
+
+    /** 回收站自动过期：清除超过保留天数的软删除条目（纯物理清理，无需主密钥） */
+    public void purgeExpiredTrashed() {
+        long cutoff = System.currentTimeMillis() - TRASH_RETENTION_DAYS * 24L * 60 * 60 * 1000L;
+        db.purgeExpiredTrashed(cutoff);
     }
 
     /** 回收站全部条目 */

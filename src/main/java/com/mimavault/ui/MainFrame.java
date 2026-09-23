@@ -856,8 +856,13 @@ public class MainFrame extends JFrame {
         }
     }
 
-    /** 打开回收站：恢复 / 彻底删除 / 清空 */
+    /** 打开回收站：恢复 / 彻底删除 / 清空（进入前先清理过期项） */
     private void onTrash() {
+        try {
+            service.purgeExpiredTrashed();
+        } catch (Exception ignored) {
+            // 过期清理失败不阻塞回收站打开
+        }
         TrashDialog dlg = new TrashDialog(this, service);
         dlg.setVisible(true);
         refreshTable(null, null);

@@ -51,7 +51,11 @@ public class DatabaseManager {
                 stmt.executeUpdate("CREATE TABLE IF NOT EXISTS settings ("
                         + "id INTEGER PRIMARY KEY CHECK (id = 1),"
                         + "master_hash TEXT NOT NULL,"
-                        + "created_at INTEGER)");
+                        + "created_at INTEGER,"
+                        + "login_failed_count INTEGER DEFAULT 0,"
+                        + "login_lock_until INTEGER,"
+                        + "login_lock_mono INTEGER,"
+                        + "login_lock_wall INTEGER)");
                 stmt.executeUpdate("CREATE TABLE IF NOT EXISTS entries ("
                         + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                         + "category TEXT DEFAULT '网站',"
@@ -83,6 +87,11 @@ public class DatabaseManager {
             ensureColumn("entries", "deleted_at", "INTEGER");
             // TOTP 动态验证码密钥（otpauth 链接密文），与安卓端 TOTP 能力对齐
             ensureColumn("entries", "totp_secret_enc", "TEXT");
+            // 失败锁定持久化：失败计数 + 锁定截止（wall 毫秒）+ 单调锚点（nanoTime/wall 对）
+            ensureColumn("settings", "login_failed_count", "INTEGER DEFAULT 0");
+            ensureColumn("settings", "login_lock_until", "INTEGER");
+            ensureColumn("settings", "login_lock_mono", "INTEGER");
+            ensureColumn("settings", "login_lock_wall", "INTEGER");
         } catch (Exception e) {
             throw new IllegalStateException("数据库初始化失败", e);
         }
@@ -147,6 +156,97 @@ public class DatabaseManager {
             return null;
         } catch (SQLException e) {
             throw new IllegalStateException("读取主密码失败", e);
+        }
+    }
+
+    // ---------- 失败锁定持久化 ----------
+
+    /** 读取登录失败计数（默认 0） */
+    public int getLoginFailedCount() {
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                     "SELECT COALESCE(login_failed_count, 0) FROM settings WHERE id = 1")) {
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+            return 0;
+        } catch (SQLException e) {
+            throw new IllegalStateException("读取失败计数失败", e);
+        }
+    }
+
+    /** 持久化登录失败计数 */
+    public void setLoginFailedCount(int count) {
+        upsertSetting("login_failed_count", String.valueOf(count));
+    }
+
+    /**
+     * 持久化锁定状态：wall 截止毫秒 + 单调锚点（写入瞬间的 nanoTime/wall 对）。
+     * lockUntil <= 0 表示清除锁定。
+     */
+    public void setLoginLock(long lockUntil, long lockMono, long lockWall) {
+        if (lockUntil <= 0) {
+            upsertSetting("login_lock_until", null);
+            upsertSetting("login_lock_mono", null);
+            upsertSetting("login_lock_wall", null);
+            return;
+        }
+        upsertSetting("login_lock_until", String.valueOf(lockUntil));
+        upsertSetting("login_lock_mono", String.valueOf(lockMono));
+        upsertSetting("login_lock_wall", String.valueOf(lockWall));
+    }
+
+    /** 读取锁定截止 wall 毫秒（0 表示未锁定） */
+    public long getLoginLockUntil() {
+        Long v = getSettingLong("login_lock_until");
+        return v == null ? 0L : v;
+    }
+
+    /** 读取锁定时的单调锚点 nanoTime */
+    public long getLoginLockMono() {
+        Long v = getSettingLong("login_lock_mono");
+        return v == null ? 0L : v;
+    }
+
+    /** 读取锁定时的 wall 锚点 */
+    public long getLoginLockWall() {
+        Long v = getSettingLong("login_lock_wall");
+        return v == null ? 0L : v;
+    }
+
+    /** 清理锁定状态（解锁成功 / 锁定到期自动解除时调用） */
+    public void clearLoginLock() {
+        setLoginLock(0L, 0L, 0L);
+    }
+
+    private void upsertSetting(String column, String value) {
+        String sql = value == null
+                ? "UPDATE settings SET " + column + " = NULL WHERE id = 1"
+                : "INSERT INTO settings (id, master_hash, created_at, " + column + ") VALUES (1, '', 0, ?) "
+                        + "ON CONFLICT(id) DO UPDATE SET " + column + " = excluded." + column;
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (value != null) {
+                ps.setString(1, value);
+            }
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("写入设置失败: " + column, e);
+        }
+    }
+
+    private Long getSettingLong(String column) {
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT " + column + " FROM settings WHERE id = 1")) {
+            if (rs.next()) {
+                long v = rs.getLong(1);
+                return rs.wasNull() ? null : v;
+            }
+            return null;
+        } catch (SQLException e) {
+            throw new IllegalStateException("读取设置失败: " + column, e);
         }
     }
 
@@ -265,6 +365,27 @@ public class DatabaseManager {
             stmt.executeUpdate("DELETE FROM entries WHERE deleted_at IS NOT NULL");
         } catch (SQLException e) {
             throw new IllegalStateException("清空回收站失败", e);
+        }
+    }
+
+    /** 回收站自动过期：物理删除 deleted_at 早于 cutoff 的软删除条目（连带清理其密码历史） */
+    public void purgeExpiredTrashed(long cutoff) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(
+                     "DELETE FROM password_history WHERE entry_id IN "
+                             + "(SELECT id FROM entries WHERE deleted_at IS NOT NULL AND deleted_at < ?)")) {
+            ps.setLong(1, cutoff);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("清理过期回收站条目失败", e);
+        }
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(
+                     "DELETE FROM entries WHERE deleted_at IS NOT NULL AND deleted_at < ?")) {
+            ps.setLong(1, cutoff);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("清理过期回收站条目失败", e);
         }
     }
 
