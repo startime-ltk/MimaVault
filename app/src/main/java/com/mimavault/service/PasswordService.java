@@ -343,6 +343,15 @@ public class PasswordService {
         db.purgeAllTrashed();
     }
 
+    /** 回收站保留天数：超过该天数的软删除条目在启动/进入回收站时自动清除（与 PC 端统一） */
+    public static final long TRASH_RETENTION_DAYS = 30L;
+
+    /** 回收站自动过期：清除超过保留天数的软删除条目（纯物理清理，无需主密钥） */
+    public void purgeExpiredTrashed() {
+        long cutoff = System.currentTimeMillis() - TRASH_RETENTION_DAYS * 24L * 60 * 60 * 1000L;
+        db.purgeExpiredTrashed(cutoff);
+    }
+
     public Entry getById(long id) {
         return db.getEntryById(id);
     }

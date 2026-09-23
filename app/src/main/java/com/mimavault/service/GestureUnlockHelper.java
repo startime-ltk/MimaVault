@@ -2,6 +2,7 @@ package com.mimavault.service;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -35,10 +36,16 @@ public final class GestureUnlockHelper {
     private static final String P_VERSION = "version";
     private static final String P_ENC = "enc";
     private static final String P_FAILS = "fails";
+    private static final String P_LOCK_UNTIL = "lock_until";   // wall 截止
+    private static final String P_LOCK_MONO = "lock_mono";     // 锁定时刻 elapsedRealtime
+    private static final String P_LOCK_WALL = "lock_wall";     // 锁定时刻 wall
     private static final String CURRENT_VERSION = "v1";
 
-    /** 手势连续错误达到该次数后，本次解锁周期内只能使用主密码（或生物识别）解锁 */
-    public static final int MAX_ATTEMPTS = 3;
+    /** 手势连续错误达到该次数后，锁定 30 分钟（与主密码失败锁定策略一致） */
+    public static final int MAX_ATTEMPTS = 5;
+    public static final long LOCK_MILLIS = 30 * 60 * 1000L;
+    /** 单调与 wall 允许偏差（毫秒），防正常时钟调整误判 */
+    private static final long CLOCK_SKEW_TOLERANCE_MS = 5_000L;
 
     private GestureUnlockHelper() {
     }
@@ -114,27 +121,68 @@ public final class GestureUnlockHelper {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(P_FAILS, 0);
     }
 
-    /** 记录一次手势解锁失败，并返回失败后是否已锁定 */
+    /** 记录一次手势解锁失败，并返回失败后是否已触发锁定（锁定 30 分钟，持久化） */
     public static boolean increaseFails(Context context) {
         SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         int fails = sp.getInt(P_FAILS, 0) + 1;
+        if (fails >= MAX_ATTEMPTS) {
+            long now = System.currentTimeMillis();
+            sp.edit()
+                    .putInt(P_FAILS, fails)
+                    .putLong(P_LOCK_UNTIL, now + LOCK_MILLIS)
+                    .putLong(P_LOCK_MONO, SystemClock.elapsedRealtime())
+                    .putLong(P_LOCK_WALL, now)
+                    .apply();
+            Log.i(TAG, "gesture unlock locked 30min, fails=" + fails);
+            return true;
+        }
         sp.edit().putInt(P_FAILS, fails).apply();
         Log.i(TAG, "gesture unlock failed, fails=" + fails);
-        return fails >= MAX_ATTEMPTS;
+        return false;
     }
 
-    /** 主密码 / 生物识别解锁成功后重置失败计数 */
+    /** 主密码 / 生物识别解锁成功后重置失败计数与锁定 */
     public static void resetFails(Context context) {
         SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (sp.getInt(P_FAILS, 0) != 0) {
-            sp.edit().putInt(P_FAILS, 0).apply();
-            Log.i(TAG, "gesture unlock fails reset");
-        }
+        sp.edit()
+                .putInt(P_FAILS, 0)
+                .putLong(P_LOCK_UNTIL, 0L)
+                .putLong(P_LOCK_MONO, 0L)
+                .putLong(P_LOCK_WALL, 0L)
+                .apply();
+        Log.i(TAG, "gesture unlock fails reset");
     }
 
-    /** 手势是否因连续错误次数过多而被锁定（锁定后只能主密码 / 生物识别解锁） */
+    /** 手势是否被锁定（连续错误达上限触发 30 分钟锁定，持久化跨重启保留；解锁后只能主密码/生物识别） */
     public static boolean isLocked(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(P_FAILS, 0) >= MAX_ATTEMPTS;
+        SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        long lockUntil = sp.getLong(P_LOCK_UNTIL, 0L);
+        if (lockUntil <= 0) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (now < lockUntil) {
+            return true;
+        }
+        // wall 已到截止：校验单调时间，防系统时间被拨快绕过锁定
+        long monoAnchor = sp.getLong(P_LOCK_MONO, 0L);
+        long wallAnchor = sp.getLong(P_LOCK_WALL, 0L);
+        if (monoAnchor > 0 && wallAnchor > 0) {
+            long elapsedMonoMs = SystemClock.elapsedRealtime() - monoAnchor;
+            long elapsedWall = now - wallAnchor;
+            if (elapsedMonoMs < LOCK_MILLIS - CLOCK_SKEW_TOLERANCE_MS
+                    && elapsedWall >= LOCK_MILLIS + CLOCK_SKEW_TOLERANCE_MS) {
+                return true;
+            }
+        }
+        // 锁定到期：自动解除并清零计数
+        sp.edit()
+                .putInt(P_FAILS, 0)
+                .putLong(P_LOCK_UNTIL, 0L)
+                .putLong(P_LOCK_MONO, 0L)
+                .putLong(P_LOCK_WALL, 0L)
+                .apply();
+        return false;
     }
 
     private static SecretKey gestureKey(Context context, String seq) {

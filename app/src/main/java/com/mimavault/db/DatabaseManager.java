@@ -155,6 +155,15 @@ public class DatabaseManager {
         db.delete("entries", "deleted_at IS NOT NULL", null);
     }
 
+    /** 回收站自动过期：物理删除删除时间早于 cutoff 的条目（连带清理其密码历史） */
+    public void purgeExpiredTrashed(long cutoff) {
+        db.delete("password_history",
+                "entry_id IN (SELECT id FROM entries WHERE deleted_at IS NOT NULL AND deleted_at < ?)",
+                new String[]{String.valueOf(cutoff)});
+        db.delete("entries", "deleted_at IS NOT NULL AND deleted_at < ?",
+                new String[]{String.valueOf(cutoff)});
+    }
+
     /** 查询回收站全部条目（按删除时间倒序） */
     public List<Entry> listTrashedEntries() {
         return query("SELECT * FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC", null);

@@ -48,6 +48,12 @@ public class MimaVaultApp extends Application {
         appContext = getApplicationContext();
         db = new DatabaseManager();
         db.init();
+        // 回收站自动过期：启动时清除超过保留天数（30 天）的软删除条目（与 PC 端统一）
+        try {
+            new com.mimavault.service.PasswordService(db).purgeExpiredTrashed();
+        } catch (Exception ignored) {
+            // 过期清理失败不影响启动
+        }
         registerActivityLifecycleCallbacks(new LifecycleGuard());
     }
 

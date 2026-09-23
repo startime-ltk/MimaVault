@@ -46,6 +46,11 @@ public class TrashActivity extends AppCompatActivity {
         setContentView(R.layout.activity_trash);
         InsetsUtil.applyTopInset(findViewById(R.id.headerTrash));
         service = new PasswordService(MimaVaultApp.db());
+        // 进入回收站前先清理过期项（超过 30 天保留期自动清除）
+        try {
+            service.purgeExpiredTrashed();
+        } catch (Exception ignored) {
+        }
 
         recycler = findViewById(R.id.recycler);
         tvEmpty = findViewById(R.id.tvEmpty);

@@ -10,8 +10,8 @@ android {
         applicationId "com.mimavaultapp"
         minSdk 26
         targetSdk 36
-        versionCode 25
-        versionName "A9.9.20"
+        versionCode 26
+        versionName "A9.10.0"
     }
 
     signingConfigs {
@@ -52,7 +52,7 @@ dependencies {
     // ZXing 二维码
     implementation 'com.google.zxing:core:3.5.3'
     implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
-    // 绂荤嚎鎷奸煶鍒嗙粍锛堟潯鐩垪琛ㄦ寜棣栧瓧姣嶇储寮曪級
-    implementation files('libs/pinyin4j-2.5.1.jar')
+    // 离线拼音分组（条目列表按首字母索引）：TinyPinyin（Apache 2.0，替换 GPL v2 传染的 pinyin4j）
+    implementation 'io.github.biezhi:TinyPinyin:2.0.3.RELEASE'
 }
 

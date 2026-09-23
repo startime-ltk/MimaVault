@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat;
 
 import com.mimavault.MimaVaultApp;
 import com.mimavault.R;
+import com.mimavault.service.AuthLockoutManager;
 import com.mimavault.service.BiometricHelper;
 import com.mimavault.service.GestureUnlockHelper;
 import com.mimavault.service.PasswordService;
@@ -39,6 +40,18 @@ public class UnlockActivity extends AppCompatActivity {
 
     private PasswordService service;
     private final Handler main = new Handler(Looper.getMainLooper());
+    /** 主密码锁定倒计时刷新 */
+    private final Runnable lockCountdown = new Runnable() {
+        @Override
+        public void run() {
+            if (!AuthLockoutManager.isLocked(UnlockActivity.this)) {
+                unlockPasswordInput();
+                return;
+            }
+            updateLockStatus();
+            main.postDelayed(this, 1000L);
+        }
+    };
 
     private LinearLayout setupBox;
     private LinearLayout unlockBox;
@@ -106,6 +119,10 @@ public class UnlockActivity extends AppCompatActivity {
 
         if (service.isInitialized()) {
             showUnlockMode();
+            // 上次进程遗留的持久化锁定：进入即检查并禁用主密码输入
+            if (AuthLockoutManager.isLocked(this)) {
+                lockPasswordInput();
+            }
         } else {
             showSetupMode();
         }
@@ -186,6 +203,7 @@ public class UnlockActivity extends AppCompatActivity {
                     return;
                 }
                 GestureUnlockHelper.resetFails(this);
+                AuthLockoutManager.onSuccess(UnlockActivity.this);
                 VaultSession.get().open(new char[0], rec.key, rec.saltHex, rec.iterations);
                 enterMain();
             });
@@ -232,10 +250,17 @@ public class UnlockActivity extends AppCompatActivity {
             char[] pwd = pwdStr.toCharArray();
             PasswordService.VerifyResult result = service.verifyMasterPassword(pwd);
             if (result == PasswordService.VerifyResult.MISMATCH) {
+                boolean locked = AuthLockoutManager.recordFailure(UnlockActivity.this);
                 main.post(() -> {
                     setBusy(false);
-                    Toast.makeText(this, R.string.unlock_failed, Toast.LENGTH_SHORT).show();
-                    etUnlockPwd.setText("");
+                    if (locked) {
+                        lockPasswordInput();
+                        Toast.makeText(this, R.string.password_locked_hint, Toast.LENGTH_LONG).show();
+                    } else {
+                        Toast.makeText(this, getString(R.string.password_wrong_left,
+                                AuthLockoutManager.remainingAttempts(UnlockActivity.this)), Toast.LENGTH_SHORT).show();
+                        etUnlockPwd.setText("");
+                    }
                 });
                 return;
             }
@@ -246,6 +271,7 @@ public class UnlockActivity extends AppCompatActivity {
             }
             SecretKey key = service.deriveKey(pwd);
             VaultSession.get().open(pwd, key, service.getMasterSaltHex(), service.getMasterIterations());
+            AuthLockoutManager.onSuccess(UnlockActivity.this);
             GestureUnlockHelper.resetFails(UnlockActivity.this);
             if (migrated) {
                 // 迁移后主密钥与盐均已变化：旧的手势/指纹绑定只能用旧密钥解开 → 必须刷新或清除
@@ -284,6 +310,7 @@ public class UnlockActivity extends AppCompatActivity {
                                 return;
                             }
                             VaultSession.get().open(new char[0], rec.key, rec.saltHex, rec.iterations);
+                            AuthLockoutManager.onSuccess(UnlockActivity.this);
                             GestureUnlockHelper.resetFails(UnlockActivity.this);
                             enterMain();
                         }
@@ -314,6 +341,42 @@ public class UnlockActivity extends AppCompatActivity {
         btnSetup.setEnabled(!busy);
         btnUnlock.setText(busy ? "正在验证…" : getString(R.string.unlock));
         btnSetup.setText(busy ? "正在创建…" : getString(R.string.setup_done));
+    }
+
+    /** 主密码锁定 30 分钟：禁用输入并启动倒计时（持久化，跨重启保留） */
+    private void lockPasswordInput() {
+        btnUnlock.setEnabled(false);
+        etUnlockPwd.setEnabled(false);
+        btnGestureUnlock.setVisibility(View.GONE);
+        updateLockStatus();
+        main.removeCallbacks(lockCountdown);
+        main.postDelayed(lockCountdown, 1000L);
+    }
+
+    /** 锁定到期：恢复主密码输入 */
+    private void unlockPasswordInput() {
+        btnUnlock.setEnabled(true);
+        etUnlockPwd.setEnabled(true);
+        etUnlockPwd.setText("");
+        tvSubtitle.setText(R.string.unlock_subtitle);
+        btnGestureUnlock.setVisibility((GestureUnlockHelper.isGestureSet(this)
+                && !GestureUnlockHelper.isLocked(this)) ? View.VISIBLE : View.GONE);
+        main.removeCallbacks(lockCountdown);
+    }
+
+    /** 刷新锁定倒计时文案 */
+    private void updateLockStatus() {
+        long remaining = AuthLockoutManager.remainingLockMillis(this);
+        long totalSec = (remaining + 999) / 1000;
+        long min = totalSec / 60;
+        long sec = totalSec % 60;
+        tvSubtitle.setText(getString(R.string.password_locked_countdown, min, sec));
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        main.removeCallbacks(lockCountdown);
     }
 
     private void enterMain() {
