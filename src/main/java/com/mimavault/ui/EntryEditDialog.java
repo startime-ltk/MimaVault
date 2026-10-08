@@ -42,6 +42,10 @@ public class EntryEditDialog extends JDialog {
     private final JLabel imageLabel = new JLabel("未选择");
     private final JLabel gestureLabel = new JLabel("未设置");
     private final JLabel totpLabel = new JLabel("未绑定");
+    // 分类专属字段（WiFi/银行卡/证件/API Key）：按分类 CardLayout 切换显示，保存时非空字段全部收集加密
+    private final CardLayout extraCardLayout = new CardLayout();
+    private final JPanel extraCard = new JPanel(extraCardLayout);
+    private final java.util.Map<String, java.util.Map<String, JTextField>> extraFields = new java.util.HashMap<>();
     private final SecretKey key;      // 编辑时用于解密显示原密码；新增可传 null
     private String originalPlain;     // 编辑加载时的明文密码（用于判断是否修改）
     private boolean keepOld = false;  // 是否保留原密码密文
@@ -158,6 +162,17 @@ public class EntryEditDialog extends JDialog {
         noteArea.setLineWrap(true);
         form.add(new JScrollPane(noteArea), gbc);
         gbc.fill = GridBagConstraints.NONE;
+
+        // 分类专属字段区：按当前分类切换显示（WiFi/银行卡/证件/API Key），默认分类无专属字段
+        initExtraCard();
+        row++;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        form.add(new JLabel("专属字段："), gbc);
+        gbc.gridx = 1;
+        form.add(extraCard, gbc);
+        categoryBox.addActionListener(e -> showExtraFor((String) categoryBox.getSelectedItem()));
+        showExtraFor(entry.getCategory() == null ? Entry.CATEGORY_WEBSITE : entry.getCategory());
 
         // 图片附件
         row++;
@@ -286,6 +301,22 @@ public class EntryEditDialog extends JDialog {
                 totpLabel.setText("（已加密，无法显示）");
             }
         }
+
+        // 分类专属字段：解密 JSON 后填充对应输入框（解不开保持空，不阻断编辑）
+        if (entry.getExtraEnc() != null && !entry.getExtraEnc().isEmpty() && key != null) {
+            try {
+                String json = AesUtil.decrypt(entry.getExtraEnc(), key);
+                java.util.Map<String, String> extra = Entry.decodeExtra(json);
+                for (java.util.Map.Entry<String, String> kv : extra.entrySet()) {
+                    JTextField tf = findExtraField(kv.getKey());
+                    if (tf != null) {
+                        tf.setText(kv.getValue() == null ? "" : kv.getValue());
+                    }
+                }
+            } catch (Exception ignore) {
+                // 无法解密：保持输入框为空
+            }
+        }
     }
 
     /**
@@ -328,6 +359,91 @@ public class EntryEditDialog extends JDialog {
             totpKeepOriginal = false;
             totpLabel.setText(c.label() + "（已绑定）");
         }
+    }
+
+    /**
+     * 初始化分类专属字段卡片：每个有专属字段的分类一张面板，另有一张空卡兜底。
+     * 键名与 Entry.ExtraKeys 对齐（双端一致），标签为界面展示文案。
+     */
+    private void initExtraCard() {
+        java.util.Map<String, String[][]> defs = new java.util.LinkedHashMap<>();
+        defs.put(Entry.CATEGORY_WIFI, new String[][]{
+                {Entry.ExtraKeys.WIFI_SSID, "网络名"},
+                {Entry.ExtraKeys.WIFI_ENCRYPTION, "加密方式"}});
+        defs.put(Entry.CATEGORY_BANK_CARD, new String[][]{
+                {Entry.ExtraKeys.BANK_CARD_NO, "卡号"},
+                {Entry.ExtraKeys.BANK_HOLDER, "持卡人"},
+                {Entry.ExtraKeys.BANK_EXPIRY, "有效期"},
+                {Entry.ExtraKeys.BANK_CVV, "CVV"},
+                {Entry.ExtraKeys.BANK_NAME, "银行"}});
+        defs.put(Entry.CATEGORY_ID_CARD, new String[][]{
+                {Entry.ExtraKeys.ID_TYPE, "证件类型"},
+                {Entry.ExtraKeys.ID_NUMBER, "证件号"},
+                {Entry.ExtraKeys.ID_NAME, "姓名"},
+                {Entry.ExtraKeys.ID_AUTHORITY, "签发机关"},
+                {Entry.ExtraKeys.ID_EXPIRY, "有效期"}});
+        defs.put(Entry.CATEGORY_API_KEY, new String[][]{
+                {Entry.ExtraKeys.API_KEY, "Key"},
+                {Entry.ExtraKeys.API_ENDPOINT, "接口地址"},
+                {Entry.ExtraKeys.API_MODEL, "模型/备注"}});
+
+        for (java.util.Map.Entry<String, String[][]> de : defs.entrySet()) {
+            String cat = de.getKey();
+            String[][] keyLabels = de.getValue();
+            JPanel p = new JPanel(new GridBagLayout());
+            GridBagConstraints g = new GridBagConstraints();
+            g.insets = new Insets(3, 5, 3, 5);
+            g.anchor = GridBagConstraints.WEST;
+            java.util.Map<String, JTextField> fieldMap = new java.util.HashMap<>();
+            int r = 0;
+            for (String[] kl : keyLabels) {
+                g.gridx = 0;
+                g.gridy = r;
+                p.add(new JLabel(kl[1] + "："), g);
+                JTextField tf = new JTextField(20);
+                g.gridx = 1;
+                p.add(tf, g);
+                fieldMap.put(kl[0], tf);
+                r++;
+            }
+            extraFields.put(cat, fieldMap);
+            extraCard.add(p, cat);
+        }
+        extraCard.add(new JPanel(), "");
+    }
+
+    /** 切换到指定分类对应的专属字段卡片；无专属字段的分类显示空卡 */
+    private void showExtraFor(String category) {
+        if (category != null && extraFields.containsKey(category)) {
+            extraCardLayout.show(extraCard, category);
+        } else {
+            extraCardLayout.show(extraCard, "");
+        }
+    }
+
+    /** 按键名查找专属字段输入框（跨全部分类面板） */
+    private JTextField findExtraField(String key) {
+        for (java.util.Map<String, JTextField> m : extraFields.values()) {
+            JTextField tf = m.get(key);
+            if (tf != null) {
+                return tf;
+            }
+        }
+        return null;
+    }
+
+    /** 收集全部分类面板中非空的专属字段（跨分类收集，避免切换分类导致已填内容丢失） */
+    private java.util.Map<String, String> collectExtra() {
+        java.util.Map<String, String> map = new java.util.LinkedHashMap<>();
+        for (java.util.Map<String, JTextField> m : extraFields.values()) {
+            for (java.util.Map.Entry<String, JTextField> e : m.entrySet()) {
+                String v = e.getValue().getText().trim();
+                if (!v.isEmpty()) {
+                    map.put(e.getKey(), v);
+                }
+            }
+        }
+        return map;
     }
 
     private void chooseImage() {
@@ -513,6 +629,14 @@ public class EntryEditDialog extends JDialog {
             }
         } else if (hasTotp) {
             JOptionPane.showMessageDialog(this, "当前会话缺少密钥，无法加密保存动态验证码", "提示", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        // 分类专属字段：非空时组装 Map 整体 AES 加密落库，为空则置空
+        java.util.Map<String, String> extraMap = collectExtra();
+        if (key != null) {
+            entry.setExtraEnc(extraMap.isEmpty() ? null : AesUtil.encrypt(Entry.encodeExtra(extraMap), key));
+        } else if (!extraMap.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "当前会话缺少密钥，无法加密保存分类专属字段", "提示", JOptionPane.WARNING_MESSAGE);
             return;
         }
         saved = true;

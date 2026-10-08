@@ -87,6 +87,8 @@ public class DatabaseManager {
             ensureColumn("entries", "deleted_at", "INTEGER");
             // TOTP 动态验证码密钥（otpauth 链接密文），与安卓端 TOTP 能力对齐
             ensureColumn("entries", "totp_secret_enc", "TEXT");
+            // 分类专属字段（WiFi/银行卡/证件/API Key）：加密 JSON 整体存储，与安卓端对齐
+            ensureColumn("entries", "extra_enc", "TEXT");
             // 失败锁定持久化：失败计数 + 锁定截止（wall 毫秒）+ 单调锚点（nanoTime/wall 对）
             ensureColumn("settings", "login_failed_count", "INTEGER DEFAULT 0");
             ensureColumn("settings", "login_lock_until", "INTEGER");
@@ -284,7 +286,7 @@ public class DatabaseManager {
 
     /** 更新条目 */
     public void updateEntry(Entry e) {
-        String sql = "UPDATE entries SET category=?, platform=?, account=?, password_enc=?, phone=?, email=?, note=?, image_path=?, gesture_seq=?, totp_secret_enc=?, updated_at=? WHERE id=?";
+        String sql = "UPDATE entries SET category=?, platform=?, account=?, password_enc=?, phone=?, email=?, note=?, image_path=?, gesture_seq=?, totp_secret_enc=?, extra_enc=?, updated_at=? WHERE id=?";
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, e.getCategory());
@@ -297,8 +299,9 @@ public class DatabaseManager {
             ps.setString(8, e.getImagePath());
             ps.setString(9, e.getGestureSeq());
             ps.setString(10, e.getTotpSecretEnc());
-            ps.setLong(11, System.currentTimeMillis());
-            ps.setLong(12, e.getId());
+            ps.setString(11, e.getExtraEnc());
+            ps.setLong(12, System.currentTimeMillis());
+            ps.setLong(13, e.getId());
             ps.executeUpdate();
         } catch (SQLException ex) {
             throw new IllegalStateException("更新条目失败", ex);
@@ -508,8 +511,8 @@ public class DatabaseManager {
         try (Connection conn = connect()) {
             conn.setAutoCommit(false);
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, sync_status, created_at, updated_at) "
-                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                    "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, extra_enc, sync_status, created_at, updated_at) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
                 for (Entry e : entries) {
                     ps.setString(1, e.getCategory() == null ? Entry.CATEGORY_WEBSITE : e.getCategory());
                     ps.setString(2, e.getPlatform());
@@ -521,9 +524,10 @@ public class DatabaseManager {
                     ps.setString(8, e.getImagePath());
                     ps.setString(9, e.getGestureSeq());
                     ps.setString(10, e.getTotpSecretEnc());
-                    ps.setString(11, e.getSyncStatus() == null ? "local" : e.getSyncStatus());
-                    ps.setLong(12, e.getCreatedAt() == null ? System.currentTimeMillis() : e.getCreatedAt().getTime());
-                    ps.setLong(13, e.getUpdatedAt() == null ? System.currentTimeMillis() : e.getUpdatedAt().getTime());
+                    ps.setString(11, e.getExtraEnc());
+                    ps.setString(12, e.getSyncStatus() == null ? "local" : e.getSyncStatus());
+                    ps.setLong(13, e.getCreatedAt() == null ? System.currentTimeMillis() : e.getCreatedAt().getTime());
+                    ps.setLong(14, e.getUpdatedAt() == null ? System.currentTimeMillis() : e.getUpdatedAt().getTime());
                     ps.addBatch();
                 }
                 ps.executeBatch();
@@ -692,6 +696,11 @@ public class DatabaseManager {
             e.setTotpSecretEnc(rs.getString("totp_secret_enc"));
         } catch (SQLException ignore) {
             e.setTotpSecretEnc(null); // 老库升级前的行不含该列（极端情况兜底）
+        }
+        try {
+            e.setExtraEnc(rs.getString("extra_enc"));
+        } catch (SQLException ignore) {
+            e.setExtraEnc(null); // 老库升级前的行不含该列（极端情况兜底）
         }
         e.setSyncStatus(rs.getString("sync_status"));
         long created = rs.getLong("created_at");

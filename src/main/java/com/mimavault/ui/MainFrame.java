@@ -50,7 +50,7 @@ public class MainFrame extends JFrame {
     private DefaultTableModel tableModel;
     private JTable table;
     private final JTextField searchField = new JTextField(18);
-    private final JComboBox<String> categoryFilter = new JComboBox<>(new String[]{"全部", "网站", "应用", "其他"});
+    private final JComboBox<String> categoryFilter = new JComboBox<>(new String[]{"全部", "网站", "应用", "其他", "WiFi", "银行卡", "证件", "API Key"});
     private final JPanel centerBox = new JPanel(new BorderLayout(0, 8));
     private final JLabel statusLabel = new JLabel("支持将图片拖入窗口，自动识别并导入");
 
@@ -728,7 +728,7 @@ public class MainFrame extends JFrame {
     private void refreshTable(String kw, String cat) {
         String keyword = kw == null ? searchField.getText() : kw;
         String category = cat == null ? (String) categoryFilter.getSelectedItem() : cat;
-        currentList = service.search(keyword, category);
+        currentList = service.search(keyword, category, key);
 
         tableModel.setRowCount(0);
         for (Entry e : currentList) {
@@ -1173,6 +1173,10 @@ public class MainFrame extends JFrame {
                     } catch (Exception ignore) {
                         // 无法识别的 2FA 字段：忽略
                     }
+                }
+                // CSV 中的分类专属字段：非空时整体加密落库（与编辑保存同链路）
+                if (row.extra != null && !row.extra.isEmpty()) {
+                    e.setExtraEnc(AesUtil.encrypt(Entry.encodeExtra(row.extra), key));
                 }
                 entries.add(e);
             }

@@ -171,9 +171,14 @@ public class PasswordService {
                 throw new IllegalStateException(
                         "迁移预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】的动态验证码密钥无法用当前主密码解密，已中止迁移（数据未改动）");
             }
+            String extraEnc = e.getExtraEnc();
+            if (extraEnc != null && !extraEnc.isEmpty() && !canDecrypt(extraEnc, oldKey) && strict) {
+                throw new IllegalStateException(
+                        "迁移预检失败：条目【" + nullToEmpty(e.getPlatform()) + "】的分类专属字段无法用当前主密码解密，已中止迁移（数据未改动）");
+            }
         }
 
-        // 2. 写回：同一条目一次性写完密码与动态验证码
+        // 2. 写回：同一条目一次性写完密码、动态验证码与分类专属字段
         for (Entry e : all) {
             boolean changed = false;
             String enc = e.getPasswordEnc();
@@ -189,6 +194,14 @@ public class PasswordService {
                 String re = tryReencrypt(totpEnc, oldKey, newKey);
                 if (re != null) {
                     e.setTotpSecretEnc(re);
+                    changed = true;
+                }
+            }
+            String extraEnc = e.getExtraEnc();
+            if (extraEnc != null && !extraEnc.isEmpty()) {
+                String re = tryReencrypt(extraEnc, oldKey, newKey);
+                if (re != null) {
+                    e.setExtraEnc(re);
                     changed = true;
                 }
             }
@@ -375,9 +388,63 @@ public class PasswordService {
         return db.getAllEntries();
     }
 
-    /** 搜索（加密字段不解密） */
-    public List<Entry> search(String keyword, String category) {
-        return db.searchEntries(keyword, category);
+    /** 搜索（加密字段不解密；分类专属字段在内存层按关键词补充命中） */
+    public List<Entry> search(String keyword, String category, javax.crypto.SecretKey key) {
+        List<Entry> dbHit = db.searchEntries(keyword, category);
+        if (keyword == null || keyword.trim().isEmpty()) {
+            return dbHit;
+        }
+        String kw = keyword.trim().toLowerCase();
+        java.util.Set<Long> hitIds = new java.util.HashSet<>();
+        for (Entry e : dbHit) {
+            hitIds.add(e.getId());
+        }
+        List<Entry> extraHit = new ArrayList<>();
+        for (Entry e : db.getAllEntries()) {
+            if (hitIds.contains(e.getId())) {
+                continue;
+            }
+            if (category != null && !category.trim().isEmpty() && !"全部".equals(category.trim())
+                    && !category.trim().equals(e.getCategory())) {
+                continue;
+            }
+            if (matchesExtra(e, kw, key)) {
+                extraHit.add(e);
+            }
+        }
+        if (extraHit.isEmpty()) {
+            return dbHit;
+        }
+        // 合并并按更新时间倒序，保持与列表展示一致
+        extraHit.addAll(dbHit);
+        extraHit.sort((a, b) -> {
+            long ta = a.getUpdatedAt() == null ? 0 : a.getUpdatedAt().getTime();
+            long tb = b.getUpdatedAt() == null ? 0 : b.getUpdatedAt().getTime();
+            return Long.compare(tb, ta);
+        });
+        return extraHit;
+    }
+
+    /** 解密分类专属字段并匹配关键词（解不开不参与匹配） */
+    private static boolean matchesExtra(Entry e, String kw, javax.crypto.SecretKey key) {
+        if (e.getExtraEnc() == null || e.getExtraEnc().isEmpty() || key == null) {
+            return false;
+        }
+        try {
+            String json = AesUtil.decrypt(e.getExtraEnc(), key);
+            if (json == null) {
+                return false;
+            }
+            java.util.Map<String, String> map = Entry.decodeExtra(json);
+            for (String v : map.values()) {
+                if (v != null && v.toLowerCase().contains(kw)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignore) {
+            return false;
+        }
+        return false;
     }
 
     public void delete(long id) {

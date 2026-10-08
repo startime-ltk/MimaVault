@@ -2,6 +2,7 @@ package com.mimavault.ui;
 
 import com.mimavault.model.Entry;
 import com.mimavault.service.PasswordService;
+import com.mimavault.util.AesUtil;
 import com.mimavault.util.ClipboardSafe;
 import com.mimavault.util.ImageUtil;
 import com.mimavault.util.PasswordStrengthUtil;
@@ -35,6 +36,10 @@ public class EntryDetailDialog extends JDialog {
     private JLabel emailLabel = new JLabel();
     private JLabel noteLabel = new JLabel();
     private JLabel syncLabel = new JLabel();
+    // 分类专属字段（WiFi/银行卡/证件/API Key）：值 Label、复制按钮、完整明文 三列对齐存放
+    private final java.util.List<JLabel> extraValueLabels = new java.util.ArrayList<>();
+    private final java.util.List<GradientButton> extraCopyBtns = new java.util.ArrayList<>();
+    private final java.util.List<String> extraPlainValues = new java.util.ArrayList<>();
     private GradientButton platformCopyBtn;
     private GradientButton toggleBtn;
     private Timer hintTimer;
@@ -153,6 +158,8 @@ public class EntryDetailDialog extends JDialog {
         emailLabel = addCopyValueRow(info, gbc, row++, "邮箱：", nullToEmpty(entry.getEmail()), copyEmailBtn);
         copyEmailBtn.addActionListener(e -> copyField(emailLabel.getText(), "邮箱"));
         noteLabel = addInfoRow(info, gbc, row++, "备注：", nullToEmpty(entry.getNote()));
+        // 分类专属字段（WiFi/银行卡/证件/API Key）：整体加密 JSON 逐字段展示，敏感字段默认脱敏，复制取完整明文
+        row = addExtraRows(info, gbc, row);
         syncLabel = addInfoRow(info, gbc, row++, "同步状态：", nullToEmpty(entry.getSyncStatus()));
 
         main.add(info, BorderLayout.WEST);
@@ -298,6 +305,8 @@ public class EntryDetailDialog extends JDialog {
         emailLabel.setText(nullToEmpty(entry.getEmail()));
         noteLabel.setText(nullToEmpty(entry.getNote()));
         syncLabel.setText(nullToEmpty(entry.getSyncStatus()));
+        // 分类专属字段：编辑保存后重读解密 Map 刷新
+        refreshExtraRows();
 
         // 重置密码展示：重新解密、默认掩码
         showPassword = false;
@@ -401,6 +410,120 @@ public class EntryDetailDialog extends JDialog {
         gbc.gridx = 1;
         panel.add(cell, gbc);
         return v;
+    }
+
+    /** 解密分类专属字段 Map（解不开返回空 Map） */
+    private java.util.Map<String, String> decryptExtra() {
+        java.util.Map<String, String> map = new java.util.LinkedHashMap<>();
+        String enc = entry.getExtraEnc();
+        if (enc == null || enc.isEmpty() || key == null) {
+            return map;
+        }
+        try {
+            String json = AesUtil.decrypt(enc, key);
+            if (json != null) {
+                map = Entry.decodeExtra(json);
+            }
+        } catch (Exception ignore) {
+            // 无法解密：保持空 Map，界面不展示该行
+        }
+        return map;
+    }
+
+    /** 追加分类专属字段行（WiFi/银行卡/证件/API Key），返回下一个可用行号 */
+    private int addExtraRows(JPanel panel, GridBagConstraints gbc, int startRow) {
+        java.util.Map<String, String> extra = decryptExtra();
+        if (extra.isEmpty()) {
+            return startRow;
+        }
+        int r = startRow;
+        for (java.util.Map.Entry<String, String> kv : extra.entrySet()) {
+            String keyName = kv.getKey();
+            String plain = kv.getValue() == null ? "" : kv.getValue();
+            String labelText = extraLabel(keyName);
+            String display = maskExtra(keyName, plain);
+            GradientButton copyBtn = GradientButton.secondary("复制");
+            JLabel valueLabel = addCopyValueRow(panel, gbc, r++, labelText + "：", display, copyBtn);
+            extraValueLabels.add(valueLabel);
+            extraCopyBtns.add(copyBtn);
+            extraPlainValues.add(plain);
+            final String fld = labelText;
+            copyBtn.addActionListener(e -> copyField(extraPlainValues.get(extraCopyBtns.indexOf(copyBtn)), fld));
+            if (plain.isEmpty()) {
+                copyBtn.setEnabled(false);
+            }
+        }
+        return r;
+    }
+
+    /** 编辑保存后刷新分类专属字段行（重读解密 Map，更新脱敏展示与明文缓存；键集合固定不变，仅值可能更新） */
+    private void refreshExtraRows() {
+        java.util.Map<String, String> extra = decryptExtra();
+        int n = Math.min(extraValueLabels.size(), extra.size());
+        java.util.List<String> keys = new java.util.ArrayList<>(extra.keySet());
+        java.util.List<String> vals = new java.util.ArrayList<>(extra.values());
+        for (int i = 0; i < n; i++) {
+            String plain = vals.get(i) == null ? "" : vals.get(i);
+            extraValueLabels.get(i).setText(maskExtra(keys.get(i), plain));
+            extraPlainValues.set(i, plain);
+            extraCopyBtns.get(i).setEnabled(!plain.isEmpty());
+        }
+    }
+
+    /** 专属字段键 → 界面标签 */
+    private static String extraLabel(String key) {
+        switch (key) {
+            case Entry.ExtraKeys.WIFI_SSID: return "网络名";
+            case Entry.ExtraKeys.WIFI_ENCRYPTION: return "加密方式";
+            case Entry.ExtraKeys.BANK_CARD_NO: return "卡号";
+            case Entry.ExtraKeys.BANK_HOLDER: return "持卡人";
+            case Entry.ExtraKeys.BANK_EXPIRY: return "有效期";
+            case Entry.ExtraKeys.BANK_CVV: return "CVV";
+            case Entry.ExtraKeys.BANK_NAME: return "银行";
+            case Entry.ExtraKeys.ID_TYPE: return "证件类型";
+            case Entry.ExtraKeys.ID_NUMBER: return "证件号";
+            case Entry.ExtraKeys.ID_NAME: return "姓名";
+            case Entry.ExtraKeys.ID_AUTHORITY: return "签发机关";
+            case Entry.ExtraKeys.ID_EXPIRY: return "有效期";
+            case Entry.ExtraKeys.API_KEY: return "Key";
+            case Entry.ExtraKeys.API_ENDPOINT: return "接口地址";
+            case Entry.ExtraKeys.API_MODEL: return "模型/备注";
+            default: return key;
+        }
+    }
+
+    /** 敏感字段脱敏展示（银行卡/证件号/API Key 等），复制时仍取完整明文 */
+    private static String maskExtra(String key, String plain) {
+        if (plain == null || plain.isEmpty()) {
+            return "";
+        }
+        if (Entry.ExtraKeys.BANK_CVV.equals(key)) {
+            return "****";
+        }
+        if (Entry.ExtraKeys.BANK_CARD_NO.equals(key)) {
+            return maskMid(plain, 4, 4);
+        }
+        if (Entry.ExtraKeys.ID_NUMBER.equals(key)) {
+            return maskMid(plain, 3, 4);
+        }
+        if (Entry.ExtraKeys.API_KEY.equals(key)) {
+            return maskMid(plain, 4, 4);
+        }
+        return plain;
+    }
+
+    /** 保留前 keep 后 tail 个字符，中间以 * 遮盖；过短整体打码 */
+    private static String maskMid(String s, int keep, int tail) {
+        if (s == null || s.length() <= keep + tail) {
+            return "****";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(s, 0, keep);
+        for (int i = 0; i < 4; i++) {
+            sb.append('*');
+        }
+        sb.append(s.substring(s.length() - tail));
+        return sb.toString();
     }
 
     private void togglePassword() {
