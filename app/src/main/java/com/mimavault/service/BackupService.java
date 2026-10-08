@@ -85,6 +85,8 @@ public final class BackupService {
             item.gestureSeq = e.getGestureSeq();
             item.totpSecret = (e.getTotpSecretEnc() == null || e.getTotpSecretEnc().isEmpty())
                     ? null : "encrypted:" + e.getTotpSecretEnc();
+            item.extraEnc = (e.getExtraEnc() == null || e.getExtraEnc().isEmpty())
+                    ? null : "encrypted:" + e.getExtraEnc();
             item.syncStatus = e.getSyncStatus();
             item.createdAt = e.getCreatedAt();
             item.updatedAt = e.getUpdatedAt();
@@ -224,6 +226,19 @@ public final class BackupService {
                                 + (item.platform == null ? "" : item.platform) + "/"
                                 + (item.account == null ? "" : item.account));
                         e.setTotpSecretEnc(null);
+                    }
+                }
+                // 分类专属字段同样做「备份密钥解 → 库密钥加密」，保证跨库可继续查看专属字段
+                String extra = e.getExtraEnc();
+                if (extra != null && !extra.isEmpty()) {
+                    try {
+                        String plain = AesUtil.decrypt(extra, backupKey);
+                        e.setExtraEnc(AesUtil.encrypt(plain, localKey));
+                    } catch (Exception ex) {
+                        android.util.Log.w("MimaVault", "分类专属字段重加密失败，已丢弃该字段: "
+                                + (item.platform == null ? "" : item.platform) + "/"
+                                + (item.account == null ? "" : item.account));
+                        e.setExtraEnc(null);
                     }
                 }
             }

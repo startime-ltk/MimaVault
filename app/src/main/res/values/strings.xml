@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">密匣 MimaVault</string>
     <string name="edit">编辑</string>
-    <string name="version_name">A9.10.0</string>
-    <string name="android_version">Android 版 · vA9.10.0</string>
+    <string name="version_name">A9.11.0</string>
+    <string name="android_version">Android 版 · vA9.11.0</string>
     <string name="kdf_unified_hint">密库加密档位已升级至 210000，与 PC 端一致</string>
     <string name="label_platform">平台 / 网站</string>
     <string name="label_account">账号</string>
@@ -11,6 +11,22 @@
     <string name="label_phone">手机号</string>
     <string name="label_email">邮箱</string>
     <string name="label_note">备注</string>
+    <string name="label_extra_fields">分类专属字段</string>
+    <string name="extra_wifi_ssid">网络名</string>
+    <string name="extra_wifi_encryption">加密方式</string>
+    <string name="extra_bank_card_no">卡号</string>
+    <string name="extra_bank_holder">持卡人</string>
+    <string name="extra_bank_expiry">有效期</string>
+    <string name="extra_bank_cvv">CVV</string>
+    <string name="extra_bank_name">银行</string>
+    <string name="extra_id_type">证件类型</string>
+    <string name="extra_id_number">证件号</string>
+    <string name="extra_id_name">姓名</string>
+    <string name="extra_id_authority">签发机关</string>
+    <string name="extra_id_expiry">有效期</string>
+    <string name="extra_api_key">API Key</string>
+    <string name="extra_api_endpoint">接口地址</string>
+    <string name="extra_api_model">模型 / 备注</string>
     <string name="label_gesture">九宫格手势</string>
     <string name="label_image">图片附件</string>
     <string name="toggle_show">显示</string>
@@ -58,6 +74,8 @@
     <string name="cancel">取消</string>
     <string name="confirm">确定</string>
     <string name="copy_password">复制密码（30 秒后自动清除）</string>
+    <string name="copy">复制</string>
+    <string name="copied_auto_clear">已复制，30 秒后自动清除</string>
     <string name="copied">已复制到剪贴板，30 秒后自动清除</string>
     <string name="show">显示</string>
     <string name="hide">隐藏</string>

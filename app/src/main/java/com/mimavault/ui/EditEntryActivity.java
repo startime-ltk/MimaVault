@@ -5,10 +5,13 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -30,6 +33,11 @@ import com.mimavault.util.GestureParser;
 import com.mimavault.util.ImageUtil;
 import com.mimavault.util.PasswordStrengthUtil;
 import com.mimavault.util.TotpUtil;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 新增 / 编辑条目
@@ -64,6 +72,12 @@ public class EditEntryActivity extends AppCompatActivity {
     private Button btnImageClear;
     private TextView tvImageName;
     private ImageView ivImagePreview;
+
+    // 分类专属字段（WiFi/银行卡/证件/API Key）：按分类动态构建输入区
+    private LinearLayout extraFieldsBox;
+    private TextView tvExtraTitle;
+    private final List<EditText> extraInputs = new ArrayList<>();
+    private String[] extraKeys = new String[0];
 
     // 动态验证码（TOTP，纯离线）
     private TextView tvTotpStatus;
@@ -121,8 +135,20 @@ public class EditEntryActivity extends AppCompatActivity {
         ivImagePreview = findViewById(R.id.ivImagePreview);
         tvTotpStatus = findViewById(R.id.tvTotpStatus);
         btnTotpClear = findViewById(R.id.btnTotpClear);
+        extraFieldsBox = findViewById(R.id.extraFieldsBox);
+        tvExtraTitle = findViewById(R.id.tvExtraTitle);
 
         spCategory.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, Entry.CATEGORIES));
+        spCategory.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                rebuildExtraFields((String) parent.getSelectedItem());
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
+            }
+        });
         if (editId > 0) {
             Entry e = service.getById(editId);
             if (e == null) {
@@ -138,6 +164,8 @@ public class EditEntryActivity extends AppCompatActivity {
             etPhone.setText(e.getPhone());
             etEmail.setText(e.getEmail());
             etNote.setText(e.getNote());
+            // 分类专属字段：解密已有 JSON 并回填（解密失败视为空）
+            fillExtraFields(e.getExtraEnc());
             gestureSeq = e.getGestureSeq() == null ? "" : e.getGestureSeq();
             tvGesture.setText(GestureParser.describe(gestureSeq));
             // 动态验证码：解密 otpauth 链接（解密失败视为未绑定，不阻塞编辑）
@@ -240,6 +268,147 @@ public class EditEntryActivity extends AppCompatActivity {
             }
         }
         spCategory.setSelection(0);
+    }
+
+    /** 分类专属字段键（双端一致：ExtraKeys），无专属字段的分类返回空数组 */
+    private String[] getExtraKeys(String category) {
+        if (Entry.CATEGORY_WIFI.equals(category)) {
+            return new String[]{Entry.ExtraKeys.WIFI_SSID, Entry.ExtraKeys.WIFI_ENCRYPTION};
+        }
+        if (Entry.CATEGORY_BANK_CARD.equals(category)) {
+            return new String[]{
+                    Entry.ExtraKeys.BANK_CARD_NO, Entry.ExtraKeys.BANK_HOLDER,
+                    Entry.ExtraKeys.BANK_EXPIRY, Entry.ExtraKeys.BANK_CVV,
+                    Entry.ExtraKeys.BANK_NAME
+            };
+        }
+        if (Entry.CATEGORY_ID_CARD.equals(category)) {
+            return new String[]{
+                    Entry.ExtraKeys.ID_TYPE, Entry.ExtraKeys.ID_NUMBER,
+                    Entry.ExtraKeys.ID_NAME, Entry.ExtraKeys.ID_AUTHORITY,
+                    Entry.ExtraKeys.ID_EXPIRY
+            };
+        }
+        if (Entry.CATEGORY_API_KEY.equals(category)) {
+            return new String[]{Entry.ExtraKeys.API_KEY, Entry.ExtraKeys.API_ENDPOINT, Entry.ExtraKeys.API_MODEL};
+        }
+        return new String[0];
+    }
+
+    /** 专属字段输入框 hint 资源（与 ExtraKeys 一一对应） */
+    private int extraHintResId(String key) {
+        switch (key) {
+            case com.mimavault.model.Entry.ExtraKeys.WIFI_SSID:
+                return R.string.extra_wifi_ssid;
+            case com.mimavault.model.Entry.ExtraKeys.WIFI_ENCRYPTION:
+                return R.string.extra_wifi_encryption;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_CARD_NO:
+                return R.string.extra_bank_card_no;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_HOLDER:
+                return R.string.extra_bank_holder;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_EXPIRY:
+                return R.string.extra_bank_expiry;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_CVV:
+                return R.string.extra_bank_cvv;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_NAME:
+                return R.string.extra_bank_name;
+            case com.mimavault.model.Entry.ExtraKeys.ID_TYPE:
+                return R.string.extra_id_type;
+            case com.mimavault.model.Entry.ExtraKeys.ID_NUMBER:
+                return R.string.extra_id_number;
+            case com.mimavault.model.Entry.ExtraKeys.ID_NAME:
+                return R.string.extra_id_name;
+            case com.mimavault.model.Entry.ExtraKeys.ID_AUTHORITY:
+                return R.string.extra_id_authority;
+            case com.mimavault.model.Entry.ExtraKeys.ID_EXPIRY:
+                return R.string.extra_id_expiry;
+            case com.mimavault.model.Entry.ExtraKeys.API_KEY:
+                return R.string.extra_api_key;
+            case com.mimavault.model.Entry.ExtraKeys.API_ENDPOINT:
+                return R.string.extra_api_endpoint;
+            case com.mimavault.model.Entry.ExtraKeys.API_MODEL:
+                return R.string.extra_api_model;
+            default:
+                return 0;
+        }
+    }
+
+    /** 按分类重建专属字段输入区；无专属字段则隐藏 */
+    private void rebuildExtraFields(String category) {
+        extraInputs.clear();
+        extraFieldsBox.removeAllViews();
+        extraKeys = getExtraKeys(category);
+        if (extraKeys.length == 0) {
+            extraFieldsBox.setVisibility(View.GONE);
+            return;
+        }
+        extraFieldsBox.setVisibility(View.VISIBLE);
+        extraFieldsBox.addView(tvExtraTitle);
+        int dp = dp(1);
+        for (String key : extraKeys) {
+            EditText et = new EditText(this);
+            et.setBackgroundResource(R.drawable.bg_input);
+            et.setHint(getString(extraHintResId(key)));
+            et.setTextColor(getColor(R.color.text_main));
+            et.setHintTextColor(getColor(R.color.text_hint));
+            et.setPadding(dp * 14, 0, dp * 14, 0);
+            et.setSingleLine(true);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp * 52);
+            lp.topMargin = dp * 10;
+            et.setLayoutParams(lp);
+            extraInputs.add(et);
+            extraFieldsBox.addView(et);
+        }
+    }
+
+    /** 解密已有 extraEnc 并回填输入框（解不开/无数据视为空） */
+    private void fillExtraFields(String extraEnc) {
+        if (extraEnc == null || extraEnc.isEmpty()) {
+            return;
+        }
+        Map<String, String> extra;
+        try {
+            String json = AesUtil.decrypt(extraEnc, VaultSession.get().key());
+            extra = json == null ? new LinkedHashMap<>() : Entry.decodeExtra(json);
+        } catch (Exception e) {
+            return;
+        }
+        for (int i = 0; i < extraInputs.size() && i < extraKeys.length; i++) {
+            String v = extra.get(extraKeys[i]);
+            if (v != null) {
+                extraInputs.get(i).setText(v);
+            }
+        }
+    }
+
+    /** 收集当前分类专属字段（仅非空值） */
+    private Map<String, String> collectExtra() {
+        Map<String, String> map = new LinkedHashMap<>();
+        for (int i = 0; i < extraInputs.size() && i < extraKeys.length; i++) {
+            String v = extraInputs.get(i).getText().toString().trim();
+            if (!v.isEmpty()) {
+                map.put(extraKeys[i], v);
+            }
+        }
+        return map;
+    }
+
+    /** 加密分类专属字段：无字段返回 null，加密失败返回 null（视为未填） */
+    private String encryptExtraOrNull() {
+        Map<String, String> map = collectExtra();
+        if (map.isEmpty()) {
+            return null;
+        }
+        try {
+            return AesUtil.encrypt(Entry.encodeExtra(map), VaultSession.get().key());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
     private void refreshStrength() {
@@ -357,6 +526,8 @@ public class EditEntryActivity extends AppCompatActivity {
             e.setEmail(email);
             e.setNote(note);
             e.setGestureSeq(gestureSeq);
+            // 分类专属字段：整体加密落库；清空输入后写 null 即为清除
+            e.setExtraEnc(encryptExtraOrNull());
             // 动态验证码密钥随会话密钥加密落库；清除后写空即为解绑
             e.setTotpSecretEnc(encryptTotpOrNull());
             // 无条件写入：支持清除图片后保存（置空路径）
@@ -381,6 +552,7 @@ public class EditEntryActivity extends AppCompatActivity {
             e.setEmail(email);
             e.setNote(note);
             e.setGestureSeq(gestureSeq);
+            e.setExtraEnc(encryptExtraOrNull());
             e.setTotpSecretEnc(encryptTotpOrNull());
             e.setImagePath(imagePath);
             savedId = service.addEntry(e, plain, VaultSession.get().key());

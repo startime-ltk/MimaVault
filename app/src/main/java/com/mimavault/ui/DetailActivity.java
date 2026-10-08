@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -30,6 +31,8 @@ import com.mimavault.util.PasswordStrengthUtil;
 import com.mimavault.util.TotpUtil;
 
 import java.io.File;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 条目详情：显示明文/掩码、复制30秒清除、弱密码提醒、手势图、图片附件
@@ -65,6 +68,9 @@ public class DetailActivity extends AppCompatActivity {
     private TextView tvTotpCountdown;
     private ProgressBar pbTotp;
     private TotpUtil.Config totpConfig;
+    // 分类专属字段
+    private LinearLayout extraBox;
+    private Map<String, String> extraValues;
     private final Handler totpHandler = new Handler(Looper.getMainLooper());
     private final Runnable totpTick = new Runnable() {
         @Override
@@ -106,6 +112,7 @@ public class DetailActivity extends AppCompatActivity {
         tvTotpCode = findViewById(R.id.tvTotpCode);
         tvTotpCountdown = findViewById(R.id.tvTotpCountdown);
         pbTotp = findViewById(R.id.pbTotp);
+        extraBox = findViewById(R.id.extraBox);
         findViewById(R.id.btnTotpCopy).setOnClickListener(v -> copyTotpCode());
         findViewById(R.id.btnCopy).setOnClickListener(v -> copyPassword());
         findViewById(R.id.btnToggle).setOnClickListener(v -> togglePassword());
@@ -139,6 +146,190 @@ public class DetailActivity extends AppCompatActivity {
         super.onPause();
         // 页面不可见立即停表，避免后台空转与验证码泄漏到快照
         totpHandler.removeCallbacks(totpTick);
+    }
+
+    /** 分类专属字段：解密、按分类顺序展示；敏感字段掩码显示，点击查看明文、按钮复制 */
+    private void renderExtraFields() {
+        extraBox.removeAllViews();
+        extraValues = null;
+        String enc = entry.getExtraEnc();
+        if (enc == null || enc.isEmpty()) {
+            extraBox.setVisibility(View.GONE);
+            return;
+        }
+        Map<String, String> extra;
+        try {
+            String json = AesUtil.decrypt(enc, VaultSession.get().key());
+            extra = json == null ? new LinkedHashMap<>() : Entry.decodeExtra(json);
+        } catch (Exception e) {
+            extraBox.setVisibility(View.GONE);
+            return;
+        }
+        if (extra.isEmpty()) {
+            extraBox.setVisibility(View.GONE);
+            return;
+        }
+        extraValues = extra;
+        extraBox.setVisibility(View.VISIBLE);
+        TextView title = new TextView(this);
+        title.setText(getString(R.string.label_extra_fields));
+        title.setTextColor(getColor(R.color.text_secondary));
+        title.setTextSize(12);
+        extraBox.addView(title);
+
+        String[] keys = extraKeysOf(entry.getCategory());
+        for (String key : keys) {
+            final String v = extra.get(key);
+            if (v == null || v.isEmpty()) {
+                continue;
+            }
+            final boolean sensitive = isSensitiveExtra(key);
+            final String label = getString(extraLabelResId(key));
+
+            // 行容器：label(左) + 复制(右)
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(10), 0, 0);
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            extraBox.addView(row, rowLp);
+
+            TextView tvLabel = new TextView(this);
+            tvLabel.setText(label);
+            tvLabel.setTextColor(getColor(R.color.text_secondary));
+            tvLabel.setTextSize(13);
+            LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            row.addView(tvLabel, labelLp);
+
+            TextView tvVal = new TextView(this);
+            tvVal.setText(sensitive ? maskExtra(v) : v);
+            tvVal.setTextColor(getColor(R.color.text_main));
+            tvVal.setTextSize(15);
+            tvVal.setSingleLine(true);
+            tvVal.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            tvVal.setOnClickListener(view -> {
+                // 点击敏感字段在掩码/明文间切换，非敏感字段点击复制
+                if (sensitive) {
+                    boolean showingPlain = tvVal.getTag() != null && Boolean.TRUE.equals(tvVal.getTag());
+                    if (showingPlain) {
+                        tvVal.setTag(Boolean.FALSE);
+                        tvVal.setText(maskExtra(v));
+                    } else {
+                        tvVal.setTag(Boolean.TRUE);
+                        tvVal.setText(v);
+                    }
+                } else {
+                    copyExtra(v);
+                }
+            });
+            row.addView(tvVal, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            TextView tvCopy = new TextView(this);
+            tvCopy.setText(getString(R.string.copy));
+            tvCopy.setBackgroundResource(R.drawable.bg_chip);
+            tvCopy.setPadding(dp(14), dp(5), dp(14), dp(5));
+            tvCopy.setTextColor(getColor(R.color.primary));
+            tvCopy.setTextSize(13);
+            tvCopy.setOnClickListener(view -> copyExtra(v));
+            row.addView(tvCopy, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+    }
+
+    private void copyExtra(String v) {
+        if (v == null || v.isEmpty()) {
+            return;
+        }
+        ClipboardUtil.copyWithAutoClear(this, v);
+        Toast.makeText(this, R.string.copied_auto_clear, Toast.LENGTH_SHORT).show();
+    }
+
+    /** 分类专属字段键序（与编辑页一致） */
+    private String[] extraKeysOf(String category) {
+        if (Entry.CATEGORY_WIFI.equals(category)) {
+            return new String[]{Entry.ExtraKeys.WIFI_SSID, Entry.ExtraKeys.WIFI_ENCRYPTION};
+        }
+        if (Entry.CATEGORY_BANK_CARD.equals(category)) {
+            return new String[]{
+                    Entry.ExtraKeys.BANK_CARD_NO, Entry.ExtraKeys.BANK_HOLDER,
+                    Entry.ExtraKeys.BANK_EXPIRY, Entry.ExtraKeys.BANK_CVV,
+                    Entry.ExtraKeys.BANK_NAME
+            };
+        }
+        if (Entry.CATEGORY_ID_CARD.equals(category)) {
+            return new String[]{
+                    Entry.ExtraKeys.ID_TYPE, Entry.ExtraKeys.ID_NUMBER,
+                    Entry.ExtraKeys.ID_NAME, Entry.ExtraKeys.ID_AUTHORITY,
+                    Entry.ExtraKeys.ID_EXPIRY
+            };
+        }
+        if (Entry.CATEGORY_API_KEY.equals(category)) {
+            return new String[]{Entry.ExtraKeys.API_KEY, Entry.ExtraKeys.API_ENDPOINT, Entry.ExtraKeys.API_MODEL};
+        }
+        return new String[0];
+    }
+
+    /** 敏感专属字段：脱敏展示（银行卡号/CVV/证件号/API Key） */
+    private boolean isSensitiveExtra(String key) {
+        switch (key) {
+            case com.mimavault.model.Entry.ExtraKeys.BANK_CARD_NO:
+            case com.mimavault.model.Entry.ExtraKeys.BANK_CVV:
+            case com.mimavault.model.Entry.ExtraKeys.ID_NUMBER:
+            case com.mimavault.model.Entry.ExtraKeys.API_KEY:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private String maskExtra(String v) {
+        if (v == null || v.isEmpty()) {
+            return "";
+        }
+        if (v.length() <= 4) {
+            return "****";
+        }
+        return v.substring(0, 2) + "****" + v.substring(v.length() - 2);
+    }
+
+    private int extraLabelResId(String key) {
+        switch (key) {
+            case com.mimavault.model.Entry.ExtraKeys.WIFI_SSID:
+                return R.string.extra_wifi_ssid;
+            case com.mimavault.model.Entry.ExtraKeys.WIFI_ENCRYPTION:
+                return R.string.extra_wifi_encryption;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_CARD_NO:
+                return R.string.extra_bank_card_no;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_HOLDER:
+                return R.string.extra_bank_holder;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_EXPIRY:
+                return R.string.extra_bank_expiry;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_CVV:
+                return R.string.extra_bank_cvv;
+            case com.mimavault.model.Entry.ExtraKeys.BANK_NAME:
+                return R.string.extra_bank_name;
+            case com.mimavault.model.Entry.ExtraKeys.ID_TYPE:
+                return R.string.extra_id_type;
+            case com.mimavault.model.Entry.ExtraKeys.ID_NUMBER:
+                return R.string.extra_id_number;
+            case com.mimavault.model.Entry.ExtraKeys.ID_NAME:
+                return R.string.extra_id_name;
+            case com.mimavault.model.Entry.ExtraKeys.ID_AUTHORITY:
+                return R.string.extra_id_authority;
+            case com.mimavault.model.Entry.ExtraKeys.ID_EXPIRY:
+                return R.string.extra_id_expiry;
+            case com.mimavault.model.Entry.ExtraKeys.API_KEY:
+                return R.string.extra_api_key;
+            case com.mimavault.model.Entry.ExtraKeys.API_ENDPOINT:
+                return R.string.extra_api_endpoint;
+            case com.mimavault.model.Entry.ExtraKeys.API_MODEL:
+                return R.string.extra_api_model;
+            default:
+                return 0;
+        }
     }
 
     /** 读取并解密 TOTP 配置；无绑定或解密失败时隐藏卡片 */
@@ -202,6 +393,7 @@ public class DetailActivity extends AppCompatActivity {
         ((android.widget.Button) findViewById(R.id.btnHistory)).setText(
                 getString(R.string.history_entry, service.countPasswordHistory(entry.getId())));
         renderTotp();
+        renderExtraFields();
         tvPlatform.setText(entry.getPlatform());
         tvCategory.setText(entry.getCategory());
         String account = entry.getAccount();

@@ -39,6 +39,7 @@ public class DatabaseManager {
                     "image_path TEXT," +
                     "gesture_seq TEXT," +
                     "totp_secret_enc TEXT," +
+                    "extra_enc TEXT," +
                     "sync_status TEXT DEFAULT 'local'," +
                     "created_at INTEGER," +
                     "updated_at INTEGER," +
@@ -65,6 +66,7 @@ public class DatabaseManager {
         ensureColumn("entries", "sync_status", "TEXT DEFAULT 'local'");
         ensureColumn("entries", "deleted_at", "INTEGER");
         ensureColumn("entries", "totp_secret_enc", "TEXT");
+        ensureColumn("entries", "extra_enc", "TEXT");
     }
 
     private void ensureColumn(String table, String column, String definition) {
@@ -328,6 +330,7 @@ public class DatabaseManager {
         cv.put("image_path", e.getImagePath());
         cv.put("gesture_seq", e.getGestureSeq());
         cv.put("totp_secret_enc", e.getTotpSecretEnc());
+        cv.put("extra_enc", e.getExtraEnc());
         cv.put("sync_status", e.getSyncStatus() == null ? "local" : e.getSyncStatus());
         if (e.getDeletedAt() != null) {
             cv.put("deleted_at", e.getDeletedAt().getTime());
@@ -353,6 +356,7 @@ public class DatabaseManager {
                 e.setImagePath(c.getString(c.getColumnIndexOrThrow("image_path")));
                 e.setGestureSeq(c.getString(c.getColumnIndexOrThrow("gesture_seq")));
                 e.setTotpSecretEnc(c.getString(c.getColumnIndexOrThrow("totp_secret_enc")));
+                e.setExtraEnc(c.getString(c.getColumnIndexOrThrow("extra_enc")));
                 e.setSyncStatus(c.getString(c.getColumnIndexOrThrow("sync_status")));
                 long created = c.getLong(c.getColumnIndexOrThrow("created_at"));
                 long updated = c.getLong(c.getColumnIndexOrThrow("updated_at"));

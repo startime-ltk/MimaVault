@@ -27,11 +27,22 @@ import java.util.Map;
  */
 public final class CsvUtil {
 
-    /** 导出表头（英文，兼容主流密码管理器） */
-    private static final String[] HEADERS = {"name", "url", "username", "password", "notes"};
+    /** 导出表头（英文，兼容主流密码管理器 + 分类专属字段列，与 PC 端 1:1 对齐） */
+    private static final String[] HEADERS = {
+            "name", "url", "username", "password", "notes",
+            "wifi_ssid", "wifi_encryption",
+            "bank_card_no", "bank_holder", "bank_expiry", "bank_cvv", "bank_name",
+            "id_type", "id_number", "id_name", "id_authority", "id_expiry",
+            "api_key", "api_endpoint", "api_model"
+    };
 
     /** 脱敏导出时密码列的占位内容（不写入任何明文，也不做解密） */
     public static final String MASKED_PASSWORD = "********";
+
+    /** 专属字段列中属于敏感字段的键（脱敏导出时同样打码，复制/导入不受影响） */
+    private static final java.util.Set<String> SENSITIVE_EXTRA_KEYS = java.util.Set.of(
+            Entry.ExtraKeys.BANK_CARD_NO, Entry.ExtraKeys.BANK_CVV,
+            Entry.ExtraKeys.ID_NUMBER, Entry.ExtraKeys.API_KEY);
 
     private CsvUtil() {
     }
@@ -70,6 +81,16 @@ public final class CsvUtil {
             // password：脱敏时直接写占位符，不触碰密文，杜绝明文进入内存与文件
             row.add(maskPassword ? MASKED_PASSWORD : decryptOrEmpty(e, key));
             row.add(nz(e.getNote()));           // notes
+            // 分类专属字段：解密 JSON 后按固定列顺序填充；脱敏模式对敏感键打码
+            java.util.Map<String, String> extra = decryptExtra(e, key);
+            for (int i = 5; i < HEADERS.length; i++) {
+                String k = HEADERS[i];
+                String v = extra.getOrDefault(k, "");
+                if (maskPassword && SENSITIVE_EXTRA_KEYS.contains(k)) {
+                    v = maskExtra(k, v);
+                }
+                row.add(v);
+            }
             sb.append(joinRow(row)).append("\r\n");
         }
         byte[] body = sb.toString().getBytes(StandardCharsets.UTF_8);
@@ -94,6 +115,56 @@ public final class CsvUtil {
         } catch (Exception ex) {
             return "";
         }
+    }
+
+    /** 解密分类专属字段 JSON（解不开/无密文返回空 Map） */
+    private static java.util.Map<String, String> decryptExtra(Entry e, SecretKey key) {
+        java.util.Map<String, String> map = new java.util.LinkedHashMap<>();
+        if (e.getExtraEnc() == null || e.getExtraEnc().isEmpty()) {
+            return map;
+        }
+        try {
+            String json = AesUtil.decrypt(e.getExtraEnc(), key);
+            if (json != null) {
+                map = Entry.decodeExtra(json);
+            }
+        } catch (Exception ignore) {
+            // 无法解密：按空处理
+        }
+        return map;
+    }
+
+    /** 专属敏感字段脱敏：卡号/证件号/API Key 保留首尾打码，CVV 全打码 */
+    private static String maskExtra(String key, String plain) {
+        if (plain == null || plain.isEmpty()) {
+            return "";
+        }
+        if (Entry.ExtraKeys.BANK_CVV.equals(key)) {
+            return "****";
+        }
+        if (Entry.ExtraKeys.BANK_CARD_NO.equals(key)) {
+            return maskMid(plain, 4, 4);
+        }
+        if (Entry.ExtraKeys.ID_NUMBER.equals(key)) {
+            return maskMid(plain, 3, 4);
+        }
+        if (Entry.ExtraKeys.API_KEY.equals(key)) {
+            return maskMid(plain, 4, 4);
+        }
+        return plain;
+    }
+
+    private static String maskMid(String s, int keep, int tail) {
+        if (s == null || s.length() <= keep + tail) {
+            return "****";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(s, 0, keep);
+        for (int i = 0; i < 4; i++) {
+            sb.append('*');
+        }
+        sb.append(s.substring(s.length() - tail));
+        return sb.toString();
     }
 
     /** 将一行字段拼接为 CSV 行（含转义） */
@@ -127,6 +198,8 @@ public final class CsvUtil {
         public String password = "";
         public String notes = "";
         public String totp = "";
+        /** 分类专属字段（键 = Entry.ExtraKeys，值为 CSV 列原文） */
+        public java.util.Map<String, String> extra = new java.util.LinkedHashMap<>();
     }
 
     /**
@@ -166,6 +239,42 @@ public final class CsvUtil {
             throw new IOException("CSV 表头未找到可识别的名称/账号/密码列");
         }
 
+        // 分类专属字段列索引（键 = Entry.ExtraKeys；常见中英文别名映射，与 PC 端 1:1 对齐）
+        int[] extraColIdx = {
+                firstIdx(headerIdx, "wifi_ssid", "network_name", "网络名"),
+                firstIdx(headerIdx, "wifi_encryption", "encryption", "加密方式"),
+                firstIdx(headerIdx, "bank_card_no", "card_number", "cardno", "卡号"),
+                firstIdx(headerIdx, "bank_holder", "card_holder", "holder", "持卡人"),
+                firstIdx(headerIdx, "bank_expiry", "card_expiry", "expiry", "有效期"),
+                firstIdx(headerIdx, "bank_cvv", "card_cvv", "cvv"),
+                firstIdx(headerIdx, "bank_name", "bank", "银行"),
+                firstIdx(headerIdx, "id_type", "证件类型"),
+                firstIdx(headerIdx, "id_number", "idno", "证件号"),
+                firstIdx(headerIdx, "id_name", "姓名"),
+                firstIdx(headerIdx, "id_authority", "签发机关"),
+                firstIdx(headerIdx, "id_expiry", "证件有效期"),
+                firstIdx(headerIdx, "api_key", "apikey", "key", "密钥"),
+                firstIdx(headerIdx, "api_endpoint", "endpoint", "接口地址"),
+                firstIdx(headerIdx, "api_model", "model", "模型", "备注")
+        };
+        String[] extraColKey = {
+                Entry.ExtraKeys.WIFI_SSID,
+                Entry.ExtraKeys.WIFI_ENCRYPTION,
+                Entry.ExtraKeys.BANK_CARD_NO,
+                Entry.ExtraKeys.BANK_HOLDER,
+                Entry.ExtraKeys.BANK_EXPIRY,
+                Entry.ExtraKeys.BANK_CVV,
+                Entry.ExtraKeys.BANK_NAME,
+                Entry.ExtraKeys.ID_TYPE,
+                Entry.ExtraKeys.ID_NUMBER,
+                Entry.ExtraKeys.ID_NAME,
+                Entry.ExtraKeys.ID_AUTHORITY,
+                Entry.ExtraKeys.ID_EXPIRY,
+                Entry.ExtraKeys.API_KEY,
+                Entry.ExtraKeys.API_ENDPOINT,
+                Entry.ExtraKeys.API_MODEL
+        };
+
         List<CsvRow> result = new ArrayList<>();
         for (int r = 1; r < rows.size(); r++) {
             List<String> row = rows.get(r);
@@ -179,9 +288,18 @@ public final class CsvUtil {
             cr.password = cell(row, pwdIdx);
             cr.notes = cell(row, noteIdx);
             cr.totp = cell(row, totpIdx);
+            // 分类专属字段：仅收集非空列，避免污染空 map
+            for (int i = 0; i < extraColIdx.length; i++) {
+                if (extraColIdx[i] >= 0) {
+                    String v = cell(row, extraColIdx[i]);
+                    if (!v.isEmpty()) {
+                        cr.extra.put(extraColKey[i], v);
+                    }
+                }
+            }
             // 全空行容错
             if (cr.name.isEmpty() && cr.username.isEmpty() && cr.password.isEmpty()
-                    && cr.url.isEmpty() && cr.notes.isEmpty()) {
+                    && cr.url.isEmpty() && cr.notes.isEmpty() && cr.extra.isEmpty()) {
                 continue;
             }
             result.add(cr);

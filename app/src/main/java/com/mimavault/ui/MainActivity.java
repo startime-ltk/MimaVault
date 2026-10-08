@@ -32,6 +32,7 @@ import com.mimavault.service.BackupService;
 import com.mimavault.service.GestureUnlockHelper;
 import com.mimavault.service.PasswordService;
 import com.mimavault.service.VaultSession;
+import com.mimavault.util.AesUtil;
 import com.mimavault.util.CsvUtil;
 import com.mimavault.util.GestureParser;
 import com.mimavault.util.InsetsUtil;
@@ -259,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void reload() {
-        List<Entry> list = service.search(currentKeyword, currentCategory);
+        List<Entry> list = service.search(currentKeyword, currentCategory, VaultSession.get().key());
         adapter.setGroupedData(list);
         tvEmpty.setVisibility(list.isEmpty() ? View.VISIBLE : View.GONE);
         updateLetterBar();
@@ -597,6 +598,11 @@ public class MainActivity extends AppCompatActivity {
                                     e.setImagePath("");
                                     e.setGestureSeq("");
                                     e.setSyncStatus("local");
+                                    // 分类专属字段：非空则整体加密写入 extraEnc（与 PC 端 CSV 互导兼容）
+                                    if (!r.extra.isEmpty()) {
+                                        String json = Entry.encodeExtra(r.extra);
+                                        e.setExtraEnc(AesUtil.encrypt(json, VaultSession.get().key()));
+                                    }
                                     service.addEntry(e, r.password, VaultSession.get().key());
                                     ok++;
                                 } catch (Exception ex) {

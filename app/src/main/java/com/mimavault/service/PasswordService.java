@@ -113,7 +113,7 @@ public class PasswordService {
     }
 
     /**
-     * 全量重加密：条目密码 + TOTP 密钥 + 历史密码（含回收站条目，密文均与主密钥同钥）。
+     * 全量重加密：条目密码 + TOTP 密钥 + 分类专属字段 + 历史密码（含回收站条目，密文均与主密钥同钥）。
      * 活跃条目严格「预检不通过即中止」，避免出现半途损坏的库；
      * 回收站条目与历史记录中确有无法解密的旧残留时跳过，不阻塞主流程。
      */
@@ -131,9 +131,12 @@ public class PasswordService {
             if (e.getTotpSecretEnc() != null && !e.getTotpSecretEnc().isEmpty()) {
                 decryptOrThrow(e.getTotpSecretEnc(), oldKey);
             }
+            if (e.getExtraEnc() != null && !e.getExtraEnc().isEmpty()) {
+                decryptOrThrow(e.getExtraEnc(), oldKey);
+            }
         }
 
-        // 第二步：全量重加密写库（同一条目一次性写完密码与 TOTP）
+        // 第二步：全量重加密写库（同一条目一次性写完密码、TOTP 与分类专属字段）
         for (Entry e : all) {
             boolean changed = false;
             if (e.getPasswordEnc() != null && !e.getPasswordEnc().isEmpty()) {
@@ -147,6 +150,13 @@ public class PasswordService {
                 String re = tryReencrypt(e.getTotpSecretEnc(), oldKey, newKey);
                 if (re != null) {
                     e.setTotpSecretEnc(re);
+                    changed = true;
+                }
+            }
+            if (e.getExtraEnc() != null && !e.getExtraEnc().isEmpty()) {
+                String re = tryReencrypt(e.getExtraEnc(), oldKey, newKey);
+                if (re != null) {
+                    e.setExtraEnc(re);
                     changed = true;
                 }
             }
@@ -318,8 +328,62 @@ public class PasswordService {
         return db.getAllEntries();
     }
 
-    public List<Entry> search(String keyword, String category) {
-        return db.searchEntries(keyword, category);
+    public List<Entry> search(String keyword, String category, SecretKey key) {
+        List<Entry> dbHit = db.searchEntries(keyword, category);
+        if (keyword == null || keyword.trim().isEmpty()) {
+            return dbHit;
+        }
+        String kw = keyword.trim().toLowerCase();
+        java.util.Set<Long> hitIds = new java.util.HashSet<>();
+        for (Entry e : dbHit) {
+            hitIds.add(e.getId());
+        }
+        List<Entry> extraHit = new ArrayList<>();
+        for (Entry e : db.getAllEntries()) {
+            if (hitIds.contains(e.getId())) {
+                continue;
+            }
+            if (category != null && !category.trim().isEmpty() && !"全部".equals(category.trim())
+                    && !category.trim().equals(e.getCategory())) {
+                continue;
+            }
+            if (matchesExtra(e, kw, key)) {
+                extraHit.add(e);
+            }
+        }
+        if (extraHit.isEmpty()) {
+            return dbHit;
+        }
+        // 合并并按更新时间倒序，保持与列表展示一致
+        extraHit.addAll(dbHit);
+        extraHit.sort((a, b) -> {
+            long ta = a.getUpdatedAt() == null ? 0 : a.getUpdatedAt().getTime();
+            long tb = b.getUpdatedAt() == null ? 0 : b.getUpdatedAt().getTime();
+            return Long.compare(tb, ta);
+        });
+        return extraHit;
+    }
+
+    /** 解密分类专属字段并匹配关键词（解不开不参与匹配） */
+    private static boolean matchesExtra(Entry e, String kw, SecretKey key) {
+        if (e.getExtraEnc() == null || e.getExtraEnc().isEmpty() || key == null) {
+            return false;
+        }
+        try {
+            String json = AesUtil.decrypt(e.getExtraEnc(), key);
+            if (json == null) {
+                return false;
+            }
+            java.util.Map<String, String> map = Entry.decodeExtra(json);
+            for (String v : map.values()) {
+                if (v != null && v.toLowerCase().contains(kw)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignore) {
+            return false;
+        }
+        return false;
     }
 
     public void delete(long id) {

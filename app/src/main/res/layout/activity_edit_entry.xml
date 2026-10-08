@@ -132,6 +132,24 @@
                 android:minHeight="80dp"
                 android:padding="14dp"
                 android:textColorHint="@color/text_hint" />
+
+            <!-- 分类专属字段（WiFi/银行卡/证件/API Key）：按分类动态填充，代码控制显隐 -->
+            <LinearLayout
+                android:id="@+id/extraFieldsBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvExtraTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_extra_fields"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- 手势 -->
