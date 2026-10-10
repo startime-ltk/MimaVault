@@ -2,6 +2,7 @@ package com.mimavault.ui;
 
 import com.mimavault.config.AppConfig;
 import com.mimavault.model.Entry;
+import com.mimavault.service.GlobalSearchIndex;
 import com.mimavault.service.PasswordHealthChecker;
 import com.mimavault.service.PasswordService;
 import com.mimavault.util.AesUtil;
@@ -56,6 +57,11 @@ public class MainFrame extends JFrame {
 
     private List<Entry> currentList;
 
+    // ---------- 全局搜索（v8.34.0） ----------
+    /** 内存索引：跨条目（含四分类专属字段、备注，回收站外全部条目）模糊匹配 */
+    private final GlobalSearchIndex globalIndex = new GlobalSearchIndex();
+    private GlobalSearchDialog globalSearchDialog;
+
     // ---------- 系统托盘 ----------
     private java.awt.SystemTray systemTray;
     private TrayIcon trayIcon;
@@ -65,6 +71,8 @@ public class MainFrame extends JFrame {
     private static final int HOTKEY_TOGGLE = NativeKeyEvent.VC_M;
     /** 锁定（回登录界面）：Ctrl+Shift+L */
     private static final int HOTKEY_LOCK = NativeKeyEvent.VC_L;
+    /** 全局搜索面板：Ctrl+K（v8.34.0） */
+    private static final int HOTKEY_SEARCH = NativeKeyEvent.VC_K;
     private NativeKeyListener hotkeyListener;
     private boolean hotkeyOk = false;
 
@@ -263,6 +271,8 @@ public class MainFrame extends JFrame {
                     SwingUtilities.invokeLater(() -> toggleMainWindow());
                 } else if (ctrl && shift && e.getKeyCode() == HOTKEY_LOCK) {
                     SwingUtilities.invokeLater(() -> autoLogout());
+                } else if (ctrl && !shift && e.getKeyCode() == HOTKEY_SEARCH) {
+                    SwingUtilities.invokeLater(() -> showGlobalSearch());
                 }
             }
 
@@ -443,6 +453,10 @@ public class MainFrame extends JFrame {
         genEmailBtn.setToolTipText("生成一个形似真实邮箱的字符串并复制到剪贴板，用于填写表单");
         row1.add(genPwdBtn);
         row1.add(genEmailBtn);
+        // 全局搜索入口：Ctrl+K 全局唤起，跨条目模糊匹配 + > 命令模式（v8.34.0）
+        GradientButton globalSearchBtn = createToolButton("全局搜索", e -> showGlobalSearch());
+        globalSearchBtn.setToolTipText("全局搜索 (Ctrl+K)：跨条目模糊匹配，支持 > 命令");
+        row1.add(globalSearchBtn);
         top.add(row1);
 
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
@@ -472,6 +486,66 @@ public class MainFrame extends JFrame {
         }
         btn.addActionListener(listener);
         return btn;
+    }
+
+    // ---------- 全局搜索：Ctrl+K 面板（v8.34.0） ----------
+
+    /** 打开全局搜索面板：先刷新索引保证最新数据，再显示（数据变更后无需手动维护索引） */
+    private void showGlobalSearch() {
+        if (!isVisible()) {
+            showMainWindow();
+        }
+        globalIndex.rebuild(service, key);
+        if (globalSearchDialog == null || !globalSearchDialog.isDisplayable()) {
+            globalSearchDialog = new GlobalSearchDialog(this, globalIndex, new GlobalSearchDialog.Host() {
+                @Override
+                public void openEntryDetail(Entry entry) {
+                    openSearchedEntryDetail(entry);
+                }
+
+                @Override
+                public void runCommand(String command) {
+                    runSearchCommand(command);
+                }
+            });
+        }
+        globalSearchDialog.open();
+    }
+
+    /** 搜索结果点击跳转：直接打开对应条目详情（保存后刷新列表与索引） */
+    private void openSearchedEntryDetail(Entry entry) {
+        EntryDetailDialog detail = new EntryDetailDialog(this, entry, service, key);
+        detail.setVisible(true);
+        if (detail.isChanged()) {
+            refreshTable(null, null);
+            globalIndex.rebuild(service, key);
+        }
+    }
+
+    /** 命令模式：>lock / >trash / >settings / >migrate / >health / >new */
+    private void runSearchCommand(String command) {
+        switch (command) {
+            case "lock":
+                autoLogout();
+                break;
+            case "trash":
+                onTrash();
+                break;
+            case "settings":
+                onChangeMaster();
+                break;
+            case "migrate":
+                openDataMigrationDialog();
+                break;
+            case "health":
+                onSecurityReport();
+                break;
+            case "new":
+                onAdd();
+                break;
+            default:
+                break;
+        }
     }
 
     private void buildTable() {
