@@ -142,6 +142,7 @@ public class MainActivity extends AppCompatActivity {
             android.util.Log.i("MimaVault", "btnMenu clicked");
             showMenu(v);
         });
+        findViewById(R.id.btnGlobalSearch).setOnClickListener(v -> GlobalSearchActivity.start(this));
         findViewById(R.id.ivHeaderLogo).setOnClickListener(v -> {
             android.util.Log.i("MimaVault", "logo clicked");
             showMenu(v);

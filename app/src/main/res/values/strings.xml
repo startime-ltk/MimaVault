@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">密匣 MimaVault</string>
     <string name="edit">编辑</string>
-    <string name="version_name">A9.11.0</string>
-    <string name="android_version">Android 版 · vA9.11.0</string>
+    <string name="version_name">A9.12.0</string>
+    <string name="android_version">Android 版 · vA9.12.0</string>
     <string name="kdf_unified_hint">密库加密档位已升级至 210000，与 PC 端一致</string>
     <string name="label_platform">平台 / 网站</string>
     <string name="label_account">账号</string>
@@ -215,4 +215,16 @@
     <string name="change_master_failed">修改失败：%1$s</string>
     <string name="change_master_note">修改主密码会重新加密库内全部内容（含密码历史与动态验证码密钥）。修改后已设置的手势 / 指纹解锁将失效，需要重新设置；旧备份文件仍使用导出时的主密码打开。</string>
     <string name="change_master_need_unlock">请先解锁后再修改主密码</string>
+
+    <!-- 全局搜索（A9.12.0，对齐 PC 端 v8.34.0 Ctrl+K 面板） -->
+    <string name="global_search">全局搜索</string>
+    <string name="global_search_hint">搜索所有条目…（wx → 微信）</string>
+    <string name="global_search_hint_default">输入关键词搜索全部条目；输入 &gt; 使用命令（锁定/回收站/设置/新建）</string>
+    <string name="global_search_building">正在构建索引…</string>
+    <string name="global_search_build_failed">索引构建失败，请稍后重试</string>
+    <string name="global_search_no_result">未找到匹配条目，试试更短的关键词或拼音缩写（如 wx → 微信）</string>
+    <string name="global_search_hits">共命中 %1$d 条（标题优先排序）</string>
+    <string name="global_search_cmd_count">命令模式：%1$d 条可用命令</string>
+    <string name="global_cmd_tag">命令</string>
+    <string name="global_search_need_unlock">请先解锁后再使用全局搜索</string>
 </resources>

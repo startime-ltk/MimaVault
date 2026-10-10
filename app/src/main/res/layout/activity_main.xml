@@ -66,23 +66,44 @@
                 app:backgroundTint="@null" />
         </LinearLayout>
 
-        <!-- 搜索框 -->
-        <EditText
-            android:id="@+id/etSearch"
+        <!-- 搜索框 + 全局搜索入口 -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="46dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:background="@drawable/bg_input"
-            android:drawableStart="@drawable/ic_search"
-            android:drawablePadding="8dp"
-            android:hint="@string/search_hint"
-            android:imeOptions="actionSearch"
-            android:inputType="text"
-            android:maxLines="1"
-            android:paddingHorizontal="14dp"
-            android:textColor="@color/text_main"
-            android:textColorHint="@color/text_hint"
-            android:textSize="14sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etSearch"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_input"
+                android:drawableStart="@drawable/ic_search"
+                android:drawablePadding="8dp"
+                android:hint="@string/search_hint"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingHorizontal="14dp"
+                android:textColor="@color/text_main"
+                android:textColorHint="@color/text_hint"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btnGlobalSearch"
+                android:layout_width="wrap_content"
+                android:layout_height="46dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_chip"
+                android:minWidth="0dp"
+                android:paddingHorizontal="14dp"
+                android:text="@string/global_search"
+                android:textColor="@color/primary"
+                android:textSize="13sp"
+                app:backgroundTint="@null" />
+        </LinearLayout>
 
         <!-- 分类筛选 -->
         <HorizontalScrollView

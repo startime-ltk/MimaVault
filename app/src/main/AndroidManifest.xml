@@ -24,6 +24,7 @@
         </activity>
 
         <activity android:name=".ui.MainActivity" android:exported="false" />
+        <activity android:name=".ui.GlobalSearchActivity" android:exported="false" />
         <activity android:name=".ui.EditEntryActivity" android:exported="false" />
         <activity android:name=".ui.DetailActivity" android:exported="false" />
         <activity android:name=".ui.GestureActivity" android:exported="false" />
