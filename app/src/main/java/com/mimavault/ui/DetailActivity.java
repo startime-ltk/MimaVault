@@ -58,6 +58,7 @@ public class DetailActivity extends AppCompatActivity {
     private TextView tvPassword;
     private TextView tvStrength;
     private TextView tvNote;
+    private TextView btnFavorite;
     private LinearLayout gestureBox;
     private LinearLayout imageBox;
     private TextView tvGestureText;
@@ -105,6 +106,7 @@ public class DetailActivity extends AppCompatActivity {
         tvPassword = findViewById(R.id.tvPassword);
         tvStrength = findViewById(R.id.tvStrength);
         tvNote = findViewById(R.id.tvNote);
+        btnFavorite = findViewById(R.id.btnFavorite);
         gestureBox = findViewById(R.id.gestureBox);
         imageBox = findViewById(R.id.imageBox);
         tvGestureText = findViewById(R.id.tvGestureText);
@@ -120,8 +122,30 @@ public class DetailActivity extends AppCompatActivity {
         findViewById(R.id.btnDelete).setOnClickListener(v -> confirmDelete());
         findViewById(R.id.btnHistory).setOnClickListener(v ->
                 PasswordHistoryActivity.start(this, entry.getId()));
+        btnFavorite.setOnClickListener(v -> toggleFavorite());
 
         render();
+    }
+
+    /** 收藏/取消收藏，立即刷新星标 */
+    private void toggleFavorite() {
+        boolean next = !entry.isFavorite();
+        service.setFavorite(entry.getId(), next);
+        entry.setFavorite(next);
+        renderFavorite();
+        Toast.makeText(this, next ? R.string.favorited : R.string.unfavorited, Toast.LENGTH_SHORT).show();
+    }
+
+    /** 使用动作（复制密码/TOTP/专属字段）累加次数 */
+    private void bumpUse() {
+        service.incrementUseCount(entry.getId());
+        entry.setUseCount(entry.getUseCount() + 1);
+    }
+
+    private void renderFavorite() {
+        btnFavorite.setText(entry.isFavorite() ? "★" : "☆");
+        btnFavorite.setTextColor(getColor(entry.isFavorite()
+                ? R.color.warning : R.color.text_hint));
     }
 
     @Override
@@ -245,6 +269,7 @@ public class DetailActivity extends AppCompatActivity {
         }
         ClipboardUtil.copyWithAutoClear(this, v);
         Toast.makeText(this, R.string.copied_auto_clear, Toast.LENGTH_SHORT).show();
+        bumpUse();
     }
 
     /** 分类专属字段键序（与编辑页一致） */
@@ -387,6 +412,7 @@ public class DetailActivity extends AppCompatActivity {
         }
         ClipboardUtil.copyWithAutoClear(this, code);
         Toast.makeText(this, R.string.totp_copied, Toast.LENGTH_SHORT).show();
+        bumpUse();
     }
 
     private void render() {
@@ -394,6 +420,7 @@ public class DetailActivity extends AppCompatActivity {
                 getString(R.string.history_entry, service.countPasswordHistory(entry.getId())));
         renderTotp();
         renderExtraFields();
+        renderFavorite();
         tvPlatform.setText(entry.getPlatform());
         tvCategory.setText(entry.getCategory());
         String account = entry.getAccount();
@@ -483,6 +510,7 @@ public class DetailActivity extends AppCompatActivity {
         }
         ClipboardUtil.copyWithAutoClear(this, pwd);
         Toast.makeText(this, "密码已复制，30 秒后自动清除剪贴板", Toast.LENGTH_LONG).show();
+        bumpUse();
     }
 
     private String tryDecrypt() {

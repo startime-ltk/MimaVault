@@ -391,6 +391,18 @@ public class PasswordService {
         db.trashEntry(id);
     }
 
+    // ---------- 使用次数与收藏（A9.13.0） ----------
+
+    /** 使用动作累加：解锁/复制密码等调用 */
+    public void incrementUseCount(long id) {
+        db.incrementUseCount(id);
+    }
+
+    /** 收藏/取消收藏 */
+    public void setFavorite(long id, boolean favorite) {
+        db.setFavorite(id, favorite);
+    }
+
     public List<Entry> listTrashed() {
         return db.listTrashedEntries();
     }

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 蓝紫渐变主题色 -->
+    <color name="gradient_start">#4F46E5</color>
+    <color name="gradient_end">#8B5CF6</color>
+    <color name="gradient_soft_start">#EEF2FF</color>
+    <color name="gradient_soft_end">#F5F3FF</color>
+    <color name="primary">#4F46E5</color>
+    <color name="primary_dark">#4338CA</color>
+    <color name="primary_light">#EEF2FF</color>
+    <color name="accent">#8B5CF6</color>
+    <color name="bg_page">#F6F7FB</color>
+    <color name="card_bg">#FFFFFF</color>
+    <color name="text_main">#1F2937</color>
+    <color name="text_secondary">#6B7280</color>
+    <color name="text_hint">#9CA3AF</color>
+    <color name="divider">#E5E7EB</color>
+    <color name="danger">#EF4444</color>
+    <color name="success">#10B981</color>
+    <color name="warning">#F59E0B</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black_translucent">#66000000</color>
+    <color name="chip_bg">#EDE9FE</color>
+</resources>

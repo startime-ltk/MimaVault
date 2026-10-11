@@ -64,6 +64,8 @@ public class Entry {
     private Date createdAt;       // 创建时间
     private Date updatedAt;       // 更新时间
     private Date deletedAt;       // 回收站删除时间（null 表示未删除）
+    private long useCount;        // 使用次数（解锁/复制密码等使用动作累加）
+    private boolean isFavorite;   // 是否收藏（列表置顶 + 详情收藏开关）
 
     public Entry() {
         this.category = CATEGORY_WEBSITE;
@@ -188,6 +190,22 @@ public class Entry {
 
     public void setDeletedAt(Date deletedAt) {
         this.deletedAt = deletedAt;
+    }
+
+    public long getUseCount() {
+        return useCount;
+    }
+
+    public void setUseCount(long useCount) {
+        this.useCount = useCount;
+    }
+
+    public boolean isFavorite() {
+        return isFavorite;
+    }
+
+    public void setFavorite(boolean favorite) {
+        isFavorite = favorite;
     }
 
     public String getExtraEnc() {

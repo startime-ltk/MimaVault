@@ -90,6 +90,8 @@ public final class BackupService {
             item.syncStatus = e.getSyncStatus();
             item.createdAt = e.getCreatedAt();
             item.updatedAt = e.getUpdatedAt();
+            item.useCount = e.getUseCount();
+            item.isFavorite = e.isFavorite();
             if (e.getImagePath() != null && !e.getImagePath().isEmpty()) {
                 File img = AppConfig.resolveImagePath(e.getImagePath());
                 if (img != null && img.exists()) {

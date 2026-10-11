@@ -43,7 +43,9 @@ public class DatabaseManager {
                     "sync_status TEXT DEFAULT 'local'," +
                     "created_at INTEGER," +
                     "updated_at INTEGER," +
-                    "deleted_at INTEGER)";
+                    "deleted_at INTEGER," +
+                    "use_count INTEGER DEFAULT 0," +
+                    "is_favorite INTEGER DEFAULT 0)";
 
     /** 密码历史版本表：改密前的旧密码（加密存储），与 entries 解耦，旧库升级仅新增该表 */
     private static final String SQL_PASSWORD_HISTORY =
@@ -67,6 +69,9 @@ public class DatabaseManager {
         ensureColumn("entries", "deleted_at", "INTEGER");
         ensureColumn("entries", "totp_secret_enc", "TEXT");
         ensureColumn("entries", "extra_enc", "TEXT");
+        // A9.13.0：使用次数与收藏，旧库自动补列迁移
+        ensureColumn("entries", "use_count", "INTEGER DEFAULT 0");
+        ensureColumn("entries", "is_favorite", "INTEGER DEFAULT 0");
     }
 
     private void ensureColumn(String table, String column, String definition) {
@@ -119,6 +124,19 @@ public class DatabaseManager {
         ContentValues cv = toValues(e);
         cv.put("updated_at", System.currentTimeMillis());
         db.update("entries", cv, "id=?", new String[]{String.valueOf(e.getId())});
+    }
+
+    /** 使用动作累加：use_count + 1（不更新 updated_at，避免干扰列表排序语义） */
+    public void incrementUseCount(long id) {
+        db.execSQL("UPDATE entries SET use_count = use_count + 1 WHERE id=?",
+                new Object[]{id});
+    }
+
+    /** 收藏开关：is_favorite 置 0/1 */
+    public void setFavorite(long id, boolean favorite) {
+        ContentValues cv = new ContentValues();
+        cv.put("is_favorite", favorite ? 1 : 0);
+        db.update("entries", cv, "id=?", new String[]{String.valueOf(id)});
     }
 
     public void deleteEntry(long id) {
@@ -332,6 +350,8 @@ public class DatabaseManager {
         cv.put("totp_secret_enc", e.getTotpSecretEnc());
         cv.put("extra_enc", e.getExtraEnc());
         cv.put("sync_status", e.getSyncStatus() == null ? "local" : e.getSyncStatus());
+        cv.put("use_count", e.getUseCount());
+        cv.put("is_favorite", e.isFavorite() ? 1 : 0);
         if (e.getDeletedAt() != null) {
             cv.put("deleted_at", e.getDeletedAt().getTime());
         } else {
@@ -358,6 +378,8 @@ public class DatabaseManager {
                 e.setTotpSecretEnc(c.getString(c.getColumnIndexOrThrow("totp_secret_enc")));
                 e.setExtraEnc(c.getString(c.getColumnIndexOrThrow("extra_enc")));
                 e.setSyncStatus(c.getString(c.getColumnIndexOrThrow("sync_status")));
+                e.setUseCount(c.getLong(c.getColumnIndexOrThrow("use_count")));
+                e.setFavorite(c.getInt(c.getColumnIndexOrThrow("is_favorite")) == 1);
                 long created = c.getLong(c.getColumnIndexOrThrow("created_at"));
                 long updated = c.getLong(c.getColumnIndexOrThrow("updated_at"));
                 if (created > 0) e.setCreatedAt(new Date(created));

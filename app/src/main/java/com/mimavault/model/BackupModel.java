@@ -36,6 +36,9 @@ public final class BackupModel {
         public String syncStatus;
         public Date createdAt;
         public Date updatedAt;
+        // A9.13.0：使用次数与收藏。PC 端旧版未定义这些字段，Gson 反序列化时自动忽略，保证 .pmaster 向后兼容
+        public long useCount;
+        public boolean isFavorite;
 
         /** 还原为 Entry（密码保持密文形式） */
         public Entry toEntry() {
@@ -59,6 +62,8 @@ public final class BackupModel {
             e.setSyncStatus(syncStatus == null ? "local" : syncStatus);
             e.setCreatedAt(createdAt);
             e.setUpdatedAt(updatedAt);
+            e.setUseCount(useCount);
+            e.setFavorite(isFavorite);
             return e;
         }
     }

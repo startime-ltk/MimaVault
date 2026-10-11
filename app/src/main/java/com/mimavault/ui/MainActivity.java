@@ -159,6 +159,13 @@ public class MainActivity extends AppCompatActivity {
             public void onLongClick(Entry entry) {
                 EditEntryActivity.start(MainActivity.this, entry.getId());
             }
+
+            @Override
+            public void onFavoriteToggle(Entry entry) {
+                boolean next = !entry.isFavorite();
+                service.setFavorite(entry.getId(), next);
+                reload();
+            }
         });
         recycler.setAdapter(adapter);
 

@@ -158,10 +158,14 @@ public class UnlockActivity extends AppCompatActivity {
             btnBiometric.setVisibility(View.GONE);
         }
 
-        // 手势密码为可选登录通道：已设置且未因错误过多被锁定时才提供入口，主密码仍为默认主通道
-        if (GestureUnlockHelper.isGestureSet(this) && !GestureUnlockHelper.isLocked(this)) {
+        // 手势密码为可选登录通道：已设置且未因错误过多被锁定时才提供入口
+        boolean gestureAvailable = GestureUnlockHelper.isGestureSet(this)
+                && !GestureUnlockHelper.isLocked(this);
+        if (gestureAvailable) {
             btnGestureUnlock.setVisibility(View.VISIBLE);
             btnGestureUnlock.setOnClickListener(v -> showGestureMode());
+            // A9.13.0：已设置手势密码时默认打开手势验证（可从手势模式切换到主密码）
+            showGestureMode();
         } else {
             btnGestureUnlock.setVisibility(View.GONE);
         }

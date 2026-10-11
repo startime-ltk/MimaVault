@@ -23,6 +23,7 @@ import java.util.Map;
  * 条目列表适配器：支持"按首字母分组排序 + 组头"模式。
  * 分组规则见 PinyinUtil：A-Z 组 + # 组（数字/符号/无法归组）。
  * 组头作为独立 viewType 插入条目之间，索引条据此做字母 → 列表位置映射。
+ * A9.13.0 排序规则：收藏置顶 → 使用次数多者在前 → 组内/整体按首字母升序。
  */
 public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
@@ -33,6 +34,9 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
         void onClick(Entry entry);
 
         void onLongClick(Entry entry);
+
+        /** 列表收藏星标点击：切换收藏状态 */
+        void onFavoriteToggle(Entry entry);
     }
 
     private final List<Entry> entries = new ArrayList<>();
@@ -47,7 +51,8 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     }
 
     /**
-     * 分组模式：先按 分组字母 + 组内拼音 排序，再插入组头。
+     * 分组模式：先按 收藏置顶 → 使用次数降序 → 组内拼音 排序，再插入组头。
+     * 收藏条目整体前置（跨字母组），仍与其它条目同列表展示。
      */
     public void setGroupedData(List<Entry> data) {
         entries.clear();
@@ -59,6 +64,17 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             Collections.sort(sorted, new Comparator<Entry>() {
                 @Override
                 public int compare(Entry a, Entry b) {
+                    // 1) 收藏置顶
+                    int fav = Boolean.compare(b.isFavorite(), a.isFavorite());
+                    if (fav != 0) {
+                        return fav;
+                    }
+                    // 2) 使用次数多的在前
+                    int uc = Long.compare(b.getUseCount(), a.getUseCount());
+                    if (uc != 0) {
+                        return uc;
+                    }
+                    // 3) 首字母/拼音升序
                     String ga = PinyinUtil.groupOf(a.getPlatform());
                     String gb = PinyinUtil.groupOf(b.getPlatform());
                     int r = Integer.compare(PinyinUtil.rankOf(ga), PinyinUtil.rankOf(gb));
@@ -174,6 +190,18 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
         Entry e = (Entry) rows.get(position);
         vh.tvPlatform.setText(e.getPlatform() == null || e.getPlatform().isEmpty() ? "(未命名)" : e.getPlatform());
         vh.chipCategory.setText(e.getCategory() == null ? Entry.CATEGORY_WEBSITE : e.getCategory());
+        // 收藏星标：★ 已收藏 / ☆ 未收藏；点击切换收藏
+        vh.tvFavorite.setText(e.isFavorite() ? "★" : "☆");
+        vh.tvFavorite.setTextColor(e.isFavorite()
+                ? vh.itemView.getContext().getColor(R.color.warning)
+                : vh.itemView.getContext().getColor(R.color.text_hint));
+        // 使用次数角标：有使用记录时展示
+        if (e.getUseCount() > 0) {
+            vh.tvUseCount.setText(vh.itemView.getContext().getString(R.string.use_count_format, e.getUseCount()));
+            vh.tvUseCount.setVisibility(View.VISIBLE);
+        } else {
+            vh.tvUseCount.setVisibility(View.GONE);
+        }
         StringBuilder account = new StringBuilder();
         if (e.getAccount() != null && !e.getAccount().isEmpty()) {
             account.append(e.getAccount());
@@ -209,6 +237,13 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             listener.onLongClick((Entry) rows.get(holder.getBindingAdapterPosition()));
             return true;
         });
+        vh.tvFavorite.setOnClickListener(v -> {
+            int pos = holder.getBindingAdapterPosition();
+            if (pos < 0 || pos >= rows.size() || !(rows.get(pos) instanceof Entry)) {
+                return;
+            }
+            listener.onFavoriteToggle((Entry) rows.get(pos));
+        });
     }
 
     @Override
@@ -226,6 +261,8 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
         TextView chipCategory;
         TextView tvAccount;
         TextView tvPasswordMask;
+        TextView tvFavorite;
+        TextView tvUseCount;
 
         EntryVH(@NonNull View itemView) {
             super(itemView);
@@ -233,6 +270,8 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             chipCategory = itemView.findViewById(R.id.chipCategory);
             tvAccount = itemView.findViewById(R.id.tvAccount);
             tvPasswordMask = itemView.findViewById(R.id.tvPasswordMask);
+            tvFavorite = itemView.findViewById(R.id.tvFavorite);
+            tvUseCount = itemView.findViewById(R.id.tvUseCount);
         }
     }
 

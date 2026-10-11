@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">密匣 MimaVault</string>
     <string name="edit">编辑</string>
-    <string name="version_name">A9.12.0</string>
-    <string name="android_version">Android 版 · vA9.12.0</string>
+    <string name="version_name">A9.13.0</string>
+    <string name="android_version">Android 版 · vA9.13.0</string>
     <string name="kdf_unified_hint">密库加密档位已升级至 210000，与 PC 端一致</string>
     <string name="label_platform">平台 / 网站</string>
     <string name="label_account">账号</string>
@@ -227,4 +227,9 @@
     <string name="global_search_cmd_count">命令模式：%1$d 条可用命令</string>
     <string name="global_cmd_tag">命令</string>
     <string name="global_search_need_unlock">请先解锁后再使用全局搜索</string>
+
+    <!-- A9.13.0：使用次数与收藏 -->
+    <string name="use_count_format">使用 %1$d 次</string>
+    <string name="favorited">已收藏</string>
+    <string name="unfavorited">已取消收藏</string>
 </resources>
