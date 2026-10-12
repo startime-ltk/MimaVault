@@ -233,12 +233,13 @@
     <string name="favorited">已收藏</string>
     <string name="unfavorited">已取消收藏</string>
 
-    <!-- A9.14.0：检查更新（仅更新通道联网，数据不上传） -->
+    <!-- A9.16.0：检查更新（多源：CDN / 镜像 / 直连，仅更新通道联网，数据不上传） -->
     <string name="check_update_menu">检查更新</string>
     <string name="check_update_checking">正在检查更新…</string>
     <string name="check_update_latest">已是最新版本</string>
     <string name="check_update_found_title">发现新版本</string>
     <string name="check_update_found_message">发现新版本 %1$s，是否立即下载更新？</string>
+    <string name="check_update_source">更新源：%1$s</string>
     <string name="check_update_now">立即更新</string>
     <string name="check_update_downloading">正在下载更新…</string>
     <string name="check_update_download_failed">下载失败：%1$s</string>

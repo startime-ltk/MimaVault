@@ -20,23 +20,34 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 检查更新（A9.14.0）：仅更新通道联网，数据不上传。
+ * 检查更新（A9.16.0）：多源策略，国内可快速访问。仅更新通道联网，数据不上传。
  *
- *  - 更新源：https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt
- *    内容格式：版本号|APK文件名，如 "A9.14.0|MimaVault-A9.14.0.apk"
- *  - 下载：https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/<APK文件名>
+ *  - 更新源（依次尝试，每源超时约 8 秒，失败自动切换下一源）：
+ *      1) jsDelivr CDN：https://cdn.jsdelivr.net/gh/startime-ltk/MimaVault@android/output/version.txt
+ *      2) GitHub 代理镜像：https://mirror.ghproxy.com/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt
+ *      3) GitHub 直连：https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt
+ *    内容格式：版本号|APK文件名，如 "A9.16.0|MimaVault-A9.16.0.apk"
+ *  - 下载：命中源后同一源下载 APK（<源APK基础URL>/<APK文件名>）
  *    → 写入 getExternalFilesDir(null)，经 FileProvider 交系统安装器安装
- *  - 版本比较：按 . - _ 分段，每段取首个连续数字块比较，容错非数字段（A9.14.0 == 9.14.0）
+ *  - 版本比较：按 . - _ 分段，每段取首个连续数字块比较，容错非数字段（A9.16.0 == 9.16.0）
  */
 public final class UpdateChecker {
 
-    /** 固定更新源：版本信息文本 */
-    public static final String VERSION_URL =
-            "https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt";
+    /** 每个更新源的连接 / 读取超时（毫秒） */
+    public static final int TIMEOUT_MS = 8_000;
 
-    /** 由 VERSION_URL 推导的 APK 下载基础目录 */
-    public static final String APK_BASE_URL =
-            "https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/";
+    /** 更新源定义：{显示名, 版本信息URL, APK下载基础URL}，按优先级排列 */
+    private static final String[][] SOURCES = {
+            {"CDN",
+                    "https://cdn.jsdelivr.net/gh/startime-ltk/MimaVault@android/output/version.txt",
+                    "https://cdn.jsdelivr.net/gh/startime-ltk/MimaVault@android/output/"},
+            {"镜像",
+                    "https://mirror.ghproxy.com/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt",
+                    "https://mirror.ghproxy.com/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/"},
+            {"直连",
+                    "https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt",
+                    "https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/"}
+    };
 
     private static final String PREFS = "mimavault_update";
     private static final String KEY_PENDING_CLEANUP = "pending_cleanup";
@@ -46,14 +57,23 @@ public final class UpdateChecker {
         void onProgress(long downloaded, long total);
     }
 
-    /** 更新信息：远端版本号 + APK 文件名 */
+    /** 更新信息：远端版本号 + APK 文件名 + 命中源（显示名 / APK 下载基础 URL） */
     public static final class UpdateInfo {
         public final String version;
         public final String apkName;
+        public final String sourceName;
+        public final String apkBaseUrl;
 
-        UpdateInfo(String version, String apkName) {
+        UpdateInfo(String version, String apkName, String sourceName, String apkBaseUrl) {
             this.version = version;
             this.apkName = apkName;
+            this.sourceName = sourceName;
+            this.apkBaseUrl = apkBaseUrl;
+        }
+
+        /** 命中源对应的 APK 完整下载地址 */
+        public String apkUrl() {
+            return apkBaseUrl + apkName;
         }
     }
 
@@ -61,49 +81,62 @@ public final class UpdateChecker {
     }
 
     /**
-     * 检查远端更新源。
+     * 检查远端更新源（多源策略）：依次尝试 CDN → 镜像 → 直连，
+     * 每源超时约 {@link #TIMEOUT_MS} 毫秒，超时或失败自动切换下一源；
+     * 命中可用源后返回带源信息的 UpdateInfo。
      *
-     * @param currentVersion 当前版本号（如 BuildConfig.VERSION_NAME = "A9.14.0"）
-     * @return 有新版时返回 UpdateInfo；已是最新或远端内容非法时返回 null
-     * @throws IOException 网络 / 解析失败
+     * @param currentVersion 当前版本号（如 "A9.16.0"）
+     * @return 有新版时返回 UpdateInfo（含命中源）；已是最新或远端内容非法时返回 null
+     * @throws IOException 全部更新源均不可达
      */
     public static UpdateInfo checkRemote(String currentVersion) throws IOException {
-        String body = httpGet(VERSION_URL);
-        String line = firstNonEmptyLine(body);
-        if (line == null) {
-            return null;
+        IOException lastError = null;
+        for (String[] source : SOURCES) {
+            try {
+                String body = httpGet(source[1]);
+                String line = firstNonEmptyLine(body);
+                if (line == null) {
+                    continue;
+                }
+                String[] parts = line.trim().split("\\|");
+                if (parts.length < 2) {
+                    continue;
+                }
+                String remoteVersion = parts[0].trim();
+                String apkName = parts[1].trim();
+                if (remoteVersion.isEmpty() || apkName.isEmpty()) {
+                    continue;
+                }
+                if (compareVersions(remoteVersion, currentVersion) <= 0) {
+                    return null;
+                }
+                return new UpdateInfo(remoteVersion, apkName, source[0], source[2]);
+            } catch (IOException e) {
+                lastError = e;
+            }
         }
-        String[] parts = line.trim().split("\\|");
-        if (parts.length < 2) {
-            return null;
+        if (lastError == null) {
+            lastError = new IOException("所有更新源均不可用");
         }
-        String remoteVersion = parts[0].trim();
-        String apkName = parts[1].trim();
-        if (remoteVersion.isEmpty() || apkName.isEmpty()) {
-            return null;
-        }
-        if (compareVersions(remoteVersion, currentVersion) <= 0) {
-            return null;
-        }
-        return new UpdateInfo(remoteVersion, apkName);
+        throw lastError;
     }
 
     /**
-     * 下载新版 APK 到 getExternalFilesDir(null)。
+     * 下载新版 APK 到 getExternalFilesDir(null)，使用命中源的 APK 完整地址。
      *
      * @return 下载完成后的 APK 文件
      * @throws IOException 网络 / IO 失败
      */
-    public static File downloadApk(Context ctx, String apkName, ProgressListener listener) throws IOException {
+    public static File downloadApk(Context ctx, String apkUrl, String apkName, ProgressListener listener) throws IOException {
         File dir = ctx.getExternalFilesDir(null);
         if (dir == null) {
             throw new IOException("无法访问应用外部存储目录");
         }
         File target = new File(dir, apkName);
-        HttpURLConnection conn = (HttpURLConnection) new URL(APK_BASE_URL + apkName).openConnection();
+        HttpURLConnection conn = (HttpURLConnection) new URL(apkUrl).openConnection();
         try {
-            conn.setConnectTimeout(15_000);
-            conn.setReadTimeout(15_000);
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
             conn.setRequestMethod("GET");
             conn.setRequestProperty("Accept-Encoding", "identity");
             int code = conn.getResponseCode();
@@ -203,8 +236,8 @@ public final class UpdateChecker {
     private static String httpGet(String url) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         try {
-            conn.setConnectTimeout(15_000);
-            conn.setReadTimeout(15_000);
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
             conn.setRequestMethod("GET");
             conn.setRequestProperty("User-Agent", "MimaVault-Android");
             int code = conn.getResponseCode();

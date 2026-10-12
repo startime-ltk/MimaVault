@@ -382,7 +382,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                     new AlertDialog.Builder(this)
                             .setTitle(R.string.check_update_found_title)
-                            .setMessage(getString(R.string.check_update_found_message, info.version))
+                            .setMessage(getString(R.string.check_update_found_message, info.version)
+                                    + "\n" + getString(R.string.check_update_source, info.sourceName))
                             .setPositiveButton(R.string.check_update_now, (d, w) -> downloadAndInstall(info))
                             .setNegativeButton(R.string.cancel, null)
                             .show();
@@ -399,13 +400,14 @@ public class MainActivity extends AppCompatActivity {
     private void downloadAndInstall(UpdateChecker.UpdateInfo info) {
         final ProgressDialog pd = new ProgressDialog(this);
         pd.setTitle(getString(R.string.check_update_downloading));
+        pd.setMessage(getString(R.string.check_update_source, info.sourceName));
         pd.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
         pd.setMax(100);
         pd.setCancelable(false);
         pd.show();
         new Thread(() -> {
             try {
-                final File apk = UpdateChecker.downloadApk(this, info.apkName,
+                final File apk = UpdateChecker.downloadApk(this, info.apkUrl(), info.apkName,
                         (done, total) -> main.post(() -> {
                             int pct = total > 0 ? (int) (done * 100 / total) : 0;
                             pd.setProgress(Math.min(pct, 100));
