@@ -20,17 +20,22 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 条目列表适配器：支持"按首字符分组排序 + 组头"模式。
- * A9.13.0 起排序规则：收藏置顶 → 使用次数多者在前 → 组内/整体按首字母升序。
- * A9.15.0 第三级改为中英文混合拼音排序：首字符为英文/数字的条目整体排在前面
- * （内部按字符序），首字符为中文的条目整体排在后面（内部按拼音序）；
- * 数字/符号/空名归 "#" 组置最前，英文归 A-Z 组，中文按拼音首字母归 A-Z 组，
- * 中文段与英文段同字母时重复插入组头（索引条按首个位置跳转）。
+ * 条目列表适配器：支持"分组排序 + 组头"模式。
+ * A9.17.0 四梯队排序规则：
+ *   梯队1：收藏条目（右侧 ☆，金色）置顶，内部按首字母拼音全拼排序，英文条目在中文前；
+ *   梯队2：非收藏中 点开次数最大的 3 个（右侧 *），按次数降序；
+ *   梯队3：其余非收藏条目按首字母拼音排序（规则同梯队1）；
+ *   梯队4：首字符为特殊符号 / 数字的条目归 "#" 组排最后（右侧 #），内部按后续字符排序。
+ * 组序列：☆ 收藏 → * 热门 → A-Z 普通组 → #。搜索过滤走同一 setGroupedData 入口自动同步。
  */
 public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final int TYPE_ENTRY = 0;
     private static final int TYPE_HEADER = 1;
+
+    /** 收藏组 / 热门组组头 key（索引条、组头定位共用） */
+    private static final String GROUP_FAV = "☆";
+    private static final String GROUP_HOT = "*";
 
     public interface Listener {
         void onClick(Entry entry);
@@ -42,10 +47,12 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     }
 
     private final List<Entry> entries = new ArrayList<>();
-    /** 扁平行：String 表示组头字母，Entry 表示条目 */
+    /** 扁平行：String 表示组头 key，Entry 表示条目 */
     private final List<Object> rows = new ArrayList<>();
-    /** 分组字母 -> 组头在 rows 中的位置（保持字母序） */
+    /** 组 key -> 组头在 rows 中的位置（保持列表顺序） */
     private final Map<String, Integer> groupPos = new LinkedHashMap<>();
+    /** 梯队2 热门条目集合（非收藏、点开次数最大的最多 3 个，次数 > 0） */
+    private final java.util.Set<Entry> hotSet = new java.util.HashSet<>();
     private final Listener listener;
 
     public EntryAdapter(Listener listener) {
@@ -53,65 +60,149 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     }
 
     /**
-     * 分组模式：先按 收藏置顶 → 使用次数降序 → 中英文混合拼音 排序，再插入组头。
-     * 收藏条目整体前置（跨语言段），仍与其它条目同列表展示。
+     * A9.17.0 四梯队分组排序：
+     *   梯队1 收藏（☆）→ 梯队2 热门 Top3（*，按次数降序）→
+     *   梯队3 其余非收藏按首字母拼音（英文在前、中文拼音在后）→ 梯队4 # 特殊符号组最后。
+     * 组序列：☆ → * → A-Z → #；组头 key 与索引条共用。
      */
     public void setGroupedData(List<Entry> data) {
         entries.clear();
         entries.addAll(data);
         rows.clear();
         groupPos.clear();
+        hotSet.clear();
         if (!entries.isEmpty()) {
-            List<Entry> sorted = new ArrayList<>(entries);
-            Collections.sort(sorted, new Comparator<Entry>() {
+            // ---- 1. 划分梯队 ----
+            List<Entry> favs = new ArrayList<>();
+            List<Entry> others = new ArrayList<>();
+            for (Entry e : entries) {
+                if (e.isFavorite()) {
+                    favs.add(e);
+                } else {
+                    others.add(e);
+                }
+            }
+            // 梯队2：非收藏中 点开次数最大的 3 个（次数 > 0 才入热门）
+            Collections.sort(others, new Comparator<Entry>() {
                 @Override
                 public int compare(Entry a, Entry b) {
-                    // 1) 收藏置顶
-                    int fav = Boolean.compare(b.isFavorite(), a.isFavorite());
-                    if (fav != 0) {
-                        return fav;
-                    }
-                    // 2) 使用次数多的在前
-                    int uc = Long.compare(b.getUseCount(), a.getUseCount());
-                    if (uc != 0) {
-                        return uc;
-                    }
-                    // 3) 中英文混合拼音：英文/数字首字符整体在前，中文整体在后
-                    int lp = Integer.compare(
-                            PinyinUtil.langPriority(a.getPlatform()),
-                            PinyinUtil.langPriority(b.getPlatform()));
-                    if (lp != 0) {
-                        return lp;
-                    }
-                    // 同类内部：英文/数字按字符序，中文按拼音全拼
-                    String ka = PinyinUtil.sortKey(a.getPlatform());
-                    String kb = PinyinUtil.sortKey(b.getPlatform());
-                    int c = ka.compareTo(kb);
-                    if (c != 0) {
-                        return c;
-                    }
-                    String na = a.getPlatform() == null ? "" : a.getPlatform();
-                    String nb = b.getPlatform() == null ? "" : b.getPlatform();
-                    return na.compareToIgnoreCase(nb);
+                    return Long.compare(b.getUseCount(), a.getUseCount());
                 }
             });
-            String lastGroupKey = null;
-            for (Entry e : sorted) {
-                String g = PinyinUtil.groupOf(e.getPlatform());
-                // 组头唯一性按"语言段:字母"区分：英文 A 与中文拼音 A 是两个组头
-                String gk = PinyinUtil.langPriority(e.getPlatform()) + ":" + g;
-                if (!gk.equals(lastGroupKey)) {
-                    rows.add(g);
-                    // groupPos 仅记录首个位置（供索引条跳转/高亮），重复段保留实际组头
-                    if (!groupPos.containsKey(g)) {
-                        groupPos.put(g, rows.size() - 1);
-                    }
-                    lastGroupKey = gk;
+            List<Entry> hots = new ArrayList<>();
+            for (Entry e : others) {
+                if (e.getUseCount() > 0 && hots.size() < 3) {
+                    hots.add(e);
                 }
-                rows.add(e);
+            }
+            hotSet.addAll(hots);
+            others.removeAll(hots);
+            // ---- 2. 各梯队内部排序 ----
+            Collections.sort(favs, PINYIN_KEY_COMPARATOR);
+            Collections.sort(hots, new Comparator<Entry>() {
+                @Override
+                public int compare(Entry a, Entry b) {
+                    return Long.compare(b.getUseCount(), a.getUseCount());
+                }
+            });
+            // 梯队3 按 A-Z 分组（先按拼音键排序，保证字母组按 A-Z 顺序插入且组内有序）；
+            // # 特殊符号进梯队4
+            Collections.sort(others, PINYIN_KEY_COMPARATOR);
+            Map<String, List<Entry>> letterGroups = new LinkedHashMap<>();
+            List<Entry> specials = new ArrayList<>();
+            for (Entry e : others) {
+                String g = PinyinUtil.groupOf(e.getPlatform());
+                if (PinyinUtil.HASH.equals(g)) {
+                    specials.add(e);
+                } else {
+                    List<Entry> list = letterGroups.get(g);
+                    if (list == null) {
+                        list = new ArrayList<>();
+                        letterGroups.put(g, list);
+                    }
+                    list.add(e);
+                }
+            }
+            for (List<Entry> list : letterGroups.values()) {
+                Collections.sort(list, PINYIN_KEY_COMPARATOR);
+            }
+            Collections.sort(specials, SPECIAL_KEY_COMPARATOR);
+            // ---- 3. 拼接扁平行 + 记录组头位置（☆ → * → A-Z → #）----
+            if (!favs.isEmpty()) {
+                int pos = rows.size();
+                rows.add(GROUP_FAV);
+                groupPos.put(GROUP_FAV, pos);
+                rows.addAll(favs);
+            }
+            if (!hots.isEmpty()) {
+                int pos = rows.size();
+                rows.add(GROUP_HOT);
+                groupPos.put(GROUP_HOT, pos);
+                rows.addAll(hots);
+            }
+            for (Map.Entry<String, List<Entry>> g : letterGroups.entrySet()) {
+                int pos = rows.size();
+                rows.add(g.getKey());
+                groupPos.put(g.getKey(), pos);
+                rows.addAll(g.getValue());
+            }
+            if (!specials.isEmpty()) {
+                int pos = rows.size();
+                rows.add(PinyinUtil.HASH);
+                groupPos.put(PinyinUtil.HASH, pos);
+                rows.addAll(specials);
             }
         }
         notifyDataSetChanged();
+    }
+
+    /** 梯队1/梯队3 拼音排序键：英文/数字/符号在前，中文在后；同段按拼音全拼，再按原文兜底 */
+    private static final Comparator<Entry> PINYIN_KEY_COMPARATOR = new Comparator<Entry>() {
+        @Override
+        public int compare(Entry a, Entry b) {
+            int lp = Integer.compare(
+                    PinyinUtil.langPriority(a.getPlatform()),
+                    PinyinUtil.langPriority(b.getPlatform()));
+            if (lp != 0) {
+                return lp;
+            }
+            String ka = PinyinUtil.sortKey(a.getPlatform());
+            String kb = PinyinUtil.sortKey(b.getPlatform());
+            int c = ka.compareTo(kb);
+            if (c != 0) {
+                return c;
+            }
+            String na = a.getPlatform() == null ? "" : a.getPlatform();
+            String nb = b.getPlatform() == null ? "" : b.getPlatform();
+            return na.compareToIgnoreCase(nb);
+        }
+    };
+
+    /** 梯队4 # 组内部排序：跳过首符号，按后续字符拼音/字符序 */
+    private static final Comparator<Entry> SPECIAL_KEY_COMPARATOR = new Comparator<Entry>() {
+        @Override
+        public int compare(Entry a, Entry b) {
+            String sa = a.getPlatform() == null || a.getPlatform().length() < 2
+                    ? "" : a.getPlatform().substring(1);
+            String sb = b.getPlatform() == null || b.getPlatform().length() < 2
+                    ? "" : b.getPlatform().substring(1);
+            int c = PinyinUtil.sortKey(sa).compareTo(PinyinUtil.sortKey(sb));
+            if (c != 0) {
+                return c;
+            }
+            return sa.compareToIgnoreCase(sb);
+        }
+    };
+
+    /** 组头 key 展示文本：☆ 收藏 / * 热门 / 字母 / # */
+    private static String headerText(String key) {
+        if (GROUP_FAV.equals(key)) {
+            return "☆ 收藏";
+        }
+        if (GROUP_HOT.equals(key)) {
+            return "* 热门";
+        }
+        return key;
     }
 
     /** 保持原有语义的兼容入口（不分组，仅刷新列表） */
@@ -124,15 +215,15 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
         notifyDataSetChanged();
     }
 
-    /** 当前存在的分组字母（字母序，末尾可能为 #） */
+    /** 当前存在的组 key（☆ → * → A-Z → #） */
     public List<String> availableLetters() {
         return new ArrayList<>(groupPos.keySet());
     }
 
     /**
-     * 定位某字母所在组的首行位置；该字母组不存在时，返回其后最近一个存在的组，
+     * 定位某组所在组的首行位置；该组不存在时，返回其后最近一个存在的组，
      * 若其后也没有则返回 null。
-     * A9.15.0：# 数字/符号组位于列表最前，点击非 # 字母时跳过 # 组。
+     * A9.17.0：# 组恒在最后（梯队4），点击普通字母时跳过 # 组，仅点击 # 直接命中。
      */
     public Integer positionOfLetterOrNext(String letter) {
         if (rows.isEmpty()) {
@@ -142,12 +233,12 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
         if (hit != null) {
             return hit;
         }
-        int targetRank = PinyinUtil.rankOf(letter);
+        int targetRank = groupRank(letter);
         Integer best = null;
         for (Map.Entry<String, Integer> e : groupPos.entrySet()) {
-            int r = PinyinUtil.rankOf(e.getKey());
-            // 数字/符号 # 组已置于列表最前，点击字母时不应回跳到它
-            if (targetRank < PinyinUtil.GROUP_COUNT - 1 && r == PinyinUtil.GROUP_COUNT - 1) {
+            int r = groupRank(e.getKey());
+            // # 组恒在最后，点击普通字母（A-Z / ☆ / *）时跳过 # 组
+            if (targetRank < RANK_HASH && r == RANK_HASH) {
                 continue;
             }
             if (r >= targetRank) {
@@ -156,6 +247,23 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
             }
         }
         return best;
+    }
+
+    /** 组层级：☆=0，*=1，A-Z=2..27，#=28 */
+    private static final int RANK_HASH = 28;
+
+    private static int groupRank(String key) {
+        if (GROUP_FAV.equals(key)) {
+            return 0;
+        }
+        if (GROUP_HOT.equals(key)) {
+            return 1;
+        }
+        int r = PinyinUtil.rankOf(key);
+        if (r >= PinyinUtil.GROUP_COUNT - 1) {
+            return RANK_HASH;
+        }
+        return 2 + r;
     }
 
     /** 根据扁平列表位置得到所在组字母（向前找最近的组头），越界返回 null */
@@ -196,18 +304,27 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     @Override
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
         if (holder instanceof HeaderVH) {
-            ((HeaderVH) holder).tvHeader.setText((String) rows.get(position));
+            ((HeaderVH) holder).tvHeader.setText(headerText((String) rows.get(position)));
             return;
         }
         EntryVH vh = (EntryVH) holder;
         Entry e = (Entry) rows.get(position);
         vh.tvPlatform.setText(e.getPlatform() == null || e.getPlatform().isEmpty() ? "(未命名)" : e.getPlatform());
         vh.chipCategory.setText(e.getCategory() == null ? Entry.CATEGORY_WEBSITE : e.getCategory());
-        // 收藏星标：★ 已收藏 / ☆ 未收藏；点击切换收藏
-        vh.tvFavorite.setText(e.isFavorite() ? "★" : "☆");
-        vh.tvFavorite.setTextColor(e.isFavorite()
-                ? vh.itemView.getContext().getColor(R.color.warning)
-                : vh.itemView.getContext().getColor(R.color.text_hint));
+        // A9.17.0 四梯队右侧标识：收藏 ☆（金色）/ 热门 *（primary）/ # 组 #（灰）/ 普通 ☆（灰，点击收藏）
+        if (e.isFavorite()) {
+            vh.tvFavorite.setText("☆");
+            vh.tvFavorite.setTextColor(vh.itemView.getContext().getColor(R.color.warning));
+        } else if (hotSet.contains(e)) {
+            vh.tvFavorite.setText("*");
+            vh.tvFavorite.setTextColor(vh.itemView.getContext().getColor(R.color.primary));
+        } else if (PinyinUtil.HASH.equals(PinyinUtil.groupOf(e.getPlatform()))) {
+            vh.tvFavorite.setText("#");
+            vh.tvFavorite.setTextColor(vh.itemView.getContext().getColor(R.color.text_hint));
+        } else {
+            vh.tvFavorite.setText("☆");
+            vh.tvFavorite.setTextColor(vh.itemView.getContext().getColor(R.color.text_hint));
+        }
         // 使用次数角标：有使用记录时展示
         if (e.getUseCount() > 0) {
             vh.tvUseCount.setText(vh.itemView.getContext().getString(R.string.use_count_format, e.getUseCount()));

@@ -16,22 +16,22 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * 右侧竖向字母索引条：A-Z + #。
+ * 右侧竖向字母索引条：☆（收藏）→ *（热门）→ A-Z → #。
  * 支持点击 / 按住滑动：命中字母变化时回调 onLetterSelected；
  * 手指抬起时回调 onTouchEnd（用于恢复列表滚动联动）。
- * 列表滚动时可通过 setActiveLetter 联动高亮当前可见组字母。
+ * 列表滚动时可通过 setActiveLetter 联动高亮当前可见组 key。
  */
 public class LetterIndexBar extends View {
 
     public interface Listener {
-        /** 触摸滑动 / 点击命中某字母（可能不存在该组，调用方自行就近跳转） */
+        /** 触摸滑动 / 点击命中某 key（可能不存在该组，调用方自行就近跳转） */
         void onLetterSelected(String letter);
 
         /** 手指抬起，恢复列表滚动联动 */
         void onTouchEnd();
     }
 
-    private static final int LETTER_COUNT = 27; // A-Z + #
+    private static final int LETTER_COUNT = 29; // ☆ + * + A-Z + #
     /** 可视字母带宽度（居中绘制）；外层其余宽度为透明热区，用于扩大手指命中面积 */
     private static final float VISUAL_WIDTH_DP = 28f;
     private final String[] letters = new String[LETTER_COUNT];
@@ -59,10 +59,12 @@ public class LetterIndexBar extends View {
 
     public LetterIndexBar(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
+        letters[0] = "☆";
+        letters[1] = "*";
         for (int i = 0; i < 26; i++) {
-            letters[i] = String.valueOf((char) ('A' + i));
+            letters[i + 2] = String.valueOf((char) ('A' + i));
         }
-        letters[26] = "#";
+        letters[28] = "#";
         colorEnabled = ContextCompat.getColor(context, R.color.primary);
         colorDisabled = ContextCompat.getColor(context, R.color.text_hint);
         colorActiveText = ContextCompat.getColor(context, R.color.white);
