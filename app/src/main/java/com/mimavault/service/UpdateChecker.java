@@ -20,13 +20,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 检查更新（A9.16.0）：多源策略，国内可快速访问。仅更新通道联网，数据不上传。
+ * 检查更新（A9.18.0）：多源策略，国内可快速访问。仅更新通道联网，数据不上传。
  *
  *  - 更新源（依次尝试，每源超时约 8 秒，失败自动切换下一源）：
  *      1) jsDelivr CDN：https://cdn.jsdelivr.net/gh/startime-ltk/MimaVault@android/output/version.txt
- *      2) GitHub 代理镜像：https://mirror.ghproxy.com/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt
+ *      2) GitHub 代理镜像：https://ghfast.top/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt
  *      3) GitHub 直连：https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt
- *    内容格式：版本号|APK文件名，如 "A9.16.0|MimaVault-A9.16.0.apk"
+ *    内容格式：版本号|APK文件名，如 "A9.17.0|MimaVault-A9.17.0.apk"
  *  - 下载：命中源后同一源下载 APK（<源APK基础URL>/<APK文件名>）
  *    → 写入 getExternalFilesDir(null)，经 FileProvider 交系统安装器安装
  *  - 版本比较：按 . - _ 分段，每段取首个连续数字块比较，容错非数字段（A9.16.0 == 9.16.0）
@@ -42,8 +42,8 @@ public final class UpdateChecker {
                     "https://cdn.jsdelivr.net/gh/startime-ltk/MimaVault@android/output/version.txt",
                     "https://cdn.jsdelivr.net/gh/startime-ltk/MimaVault@android/output/"},
             {"镜像",
-                    "https://mirror.ghproxy.com/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt",
-                    "https://mirror.ghproxy.com/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/"},
+                    "https://ghfast.top/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt",
+                    "https://ghfast.top/https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/"},
             {"直连",
                     "https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/version.txt",
                     "https://raw.githubusercontent.com/startime-ltk/MimaVault/android/output/"}
