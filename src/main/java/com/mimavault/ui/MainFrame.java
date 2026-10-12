@@ -10,6 +10,7 @@ import com.mimavault.util.BackupUtil;
 import com.mimavault.util.ClipboardSafe;
 import com.mimavault.util.CsvUtil;
 import com.mimavault.util.DragDropUtil;
+import com.mimavault.util.EntrySorter;
 import com.mimavault.util.ImageUtil;
 import com.mimavault.util.OcrUtil;
 import com.mimavault.util.PasswordGenerator;
@@ -57,7 +58,13 @@ public class MainFrame extends JFrame {
 
     private List<Entry> currentList;
 
-    // ---------- 全局搜索（v8.34.0） ----------
+    /** 主列表热门梯队（次数 Top3）id 集合：渲染 * 蓝色标识（v8.35.0 四梯队排序） */
+    private final List<Long> hotIds = new ArrayList<>();
+
+    /** 当前应用版本号（检查更新 / 版本展示统一入口） */
+    public static final String APP_VERSION = "8.35.0";
+
+    // ---------- 全局搜索（v8.35.0） ----------
     /** 内存索引：跨条目（含四分类专属字段、备注，回收站外全部条目）模糊匹配 */
     private final GlobalSearchIndex globalIndex = new GlobalSearchIndex();
     private GlobalSearchDialog globalSearchDialog;
@@ -71,7 +78,7 @@ public class MainFrame extends JFrame {
     private static final int HOTKEY_TOGGLE = NativeKeyEvent.VC_M;
     /** 锁定（回登录界面）：Ctrl+Shift+L */
     private static final int HOTKEY_LOCK = NativeKeyEvent.VC_L;
-    /** 全局搜索面板：Ctrl+K（v8.34.0） */
+    /** 全局搜索面板：Ctrl+K（v8.35.0） */
     private static final int HOTKEY_SEARCH = NativeKeyEvent.VC_K;
     private NativeKeyListener hotkeyListener;
     private boolean hotkeyOk = false;
@@ -453,7 +460,7 @@ public class MainFrame extends JFrame {
         genEmailBtn.setToolTipText("生成一个形似真实邮箱的字符串并复制到剪贴板，用于填写表单");
         row1.add(genPwdBtn);
         row1.add(genEmailBtn);
-        // 全局搜索入口：Ctrl+K 全局唤起，跨条目模糊匹配 + > 命令模式（v8.34.0）
+        // 全局搜索入口：Ctrl+K 全局唤起，跨条目模糊匹配 + > 命令模式（v8.35.0）
         GradientButton globalSearchBtn = createToolButton("全局搜索", e -> showGlobalSearch());
         globalSearchBtn.setToolTipText("全局搜索 (Ctrl+K)：跨条目模糊匹配，支持 > 命令");
         row1.add(globalSearchBtn);
@@ -470,6 +477,8 @@ public class MainFrame extends JFrame {
         row2.add(createToolButton("导入", e -> onImport()));
         // 修改主密码入口：验证当前密码 → 全库重加密 → 更新内存密钥
         row2.add(createToolButton("修改主密码", e -> onChangeMaster()));
+        // 检查更新入口：多源（CDN/镜像/直连）检查新版本并打开下载页（v8.35.0）
+        row2.add(createToolButton("检查更新", e -> checkForUpdate()));
         top.add(row2);
 
         centerBox.add(top, BorderLayout.NORTH);
@@ -488,7 +497,7 @@ public class MainFrame extends JFrame {
         return btn;
     }
 
-    // ---------- 全局搜索：Ctrl+K 面板（v8.34.0） ----------
+    // ---------- 全局搜索：Ctrl+K 面板（v8.35.0） ----------
 
     /** 打开全局搜索面板：先刷新索引保证最新数据，再显示（数据变更后无需手动维护索引） */
     private void showGlobalSearch() {
@@ -512,13 +521,16 @@ public class MainFrame extends JFrame {
         globalSearchDialog.open();
     }
 
-    /** 搜索结果点击跳转：直接打开对应条目详情（保存后刷新列表与索引） */
+    /** 搜索结果点击跳转：直接打开对应条目详情（查看即累计使用次数，保存后刷新列表与索引） */
     private void openSearchedEntryDetail(Entry entry) {
+        service.bumpUse(entry.getId());
         EntryDetailDialog detail = new EntryDetailDialog(this, entry, service, key);
         detail.setVisible(true);
         if (detail.isChanged()) {
             refreshTable(null, null);
             globalIndex.rebuild(service, key);
+        } else {
+            refreshTable(null, null); // 次数可能已变化，统一重载列表
         }
     }
 
@@ -549,10 +561,10 @@ public class MainFrame extends JFrame {
     }
 
     private void buildTable() {
-        tableModel = new DefaultTableModel(new String[]{"选择", "类型", "平台", "账号", "手机", "邮箱", "备注", "强度"}, 0) {
+        tableModel = new DefaultTableModel(new String[]{"选择", "收藏", "类型", "平台", "账号", "手机", "邮箱", "备注", "强度", "次数"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return column == 0; // 仅"选择"列可编辑（复选框勾选）
+                return column == 0; // 仅"选择"列可编辑（复选框勾选）；收藏列点击切换由鼠标监听处理
             }
 
             @Override
@@ -573,13 +585,46 @@ public class MainFrame extends JFrame {
         table.setFillsViewportHeight(true);
         GradientTableHeader.apply(table);
         table.getColumnModel().getColumn(0).setPreferredWidth(44);
-        table.getColumnModel().getColumn(1).setPreferredWidth(50);
-        table.getColumnModel().getColumn(2).setPreferredWidth(130);
+        table.getColumnModel().getColumn(1).setPreferredWidth(48);
+        table.getColumnModel().getColumn(2).setPreferredWidth(50);
         table.getColumnModel().getColumn(3).setPreferredWidth(120);
-        table.getColumnModel().getColumn(4).setPreferredWidth(100);
-        table.getColumnModel().getColumn(5).setPreferredWidth(130);
-        table.getColumnModel().getColumn(6).setPreferredWidth(150);
-        table.getColumnModel().getColumn(7).setPreferredWidth(60);
+        table.getColumnModel().getColumn(4).setPreferredWidth(110);
+        table.getColumnModel().getColumn(5).setPreferredWidth(90);
+        table.getColumnModel().getColumn(6).setPreferredWidth(120);
+        table.getColumnModel().getColumn(7).setPreferredWidth(140);
+        table.getColumnModel().getColumn(8).setPreferredWidth(60);
+        table.getColumnModel().getColumn(9).setPreferredWidth(50);
+
+        // 收藏列渲染：☆ 金色（收藏）/ * 蓝色（热门 Top3）/ 空（普通条目），对齐安卓四梯队图标
+        table.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean isSelected,
+                                                           boolean hasFocus, int row, int column) {
+                Component c = super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
+                c.setFont(new Font("Microsoft YaHei", Font.BOLD, 15));
+                if (!isSelected) {
+                    String v = value == null ? "" : value.toString();
+                    if ("☆".equals(v)) {
+                        c.setForeground(new Color(0xF1C40F)); // 收藏金色
+                    } else if ("*".equals(v)) {
+                        c.setForeground(new Color(0x3498DB)); // 热门蓝色
+                    } else {
+                        c.setForeground(new Color(0xB0B6C8)); // 普通置灰
+                    }
+                }
+                return c;
+            }
+        });
+        // 次数列右对齐
+        table.getColumnModel().getColumn(9).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean isSelected,
+                                                           boolean hasFocus, int row, int column) {
+                Component c = super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
+                setHorizontalAlignment(SwingConstants.CENTER);
+                return c;
+            }
+        });
 
         // 强度列着色：弱=红 / 中=橙 / 强=绿 / 未设置=灰
         table.getColumnModel().getColumn(7).setCellRenderer(new DefaultTableCellRenderer() {
@@ -608,10 +653,16 @@ public class MainFrame extends JFrame {
             }
         });
 
-        // 双击查看详情 + 右键复制账号/密码/邮箱
+        // 双击查看详情 + 右键复制账号/密码/邮箱 + 单击收藏列切换收藏（v8.35.0）
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
+                int col = table.columnAtPoint(e.getPoint());
+                int row = table.rowAtPoint(e.getPoint());
+                if (col == 1 && row >= 0 && row < currentList.size() && e.getClickCount() == 1) {
+                    toggleFavorite(currentList.get(row));
+                    return;
+                }
                 if (e.getClickCount() == 2 && table.getSelectedRow() >= 0) {
                     onDetail();
                 }
@@ -803,18 +854,24 @@ public class MainFrame extends JFrame {
         String keyword = kw == null ? searchField.getText() : kw;
         String category = cat == null ? (String) categoryFilter.getSelectedItem() : cat;
         currentList = service.search(keyword, category, key);
+        // 四梯队排序（收藏☆ → 热门Top3* → 字母拼音 → #特殊）并同步热门 id 集合，供收藏列渲染 * 标识
+        hotIds.clear();
+        currentList = EntrySorter.sort(currentList, hotIds);
 
         tableModel.setRowCount(0);
         for (Entry e : currentList) {
+            String mark = e.isFavorite() ? "☆" : (hotIds.contains(e.getId()) ? "*" : "");
             tableModel.addRow(new Object[]{
                     Boolean.FALSE,
+                    mark,
                     nullToEmpty(e.getCategory()),
                     nullToEmpty(e.getPlatform()),
                     nullToEmpty(e.getAccount()),
                     nullToEmpty(e.getPhone()),
                     nullToEmpty(e.getEmail()),
                     nullToEmpty(e.getNote()),
-                    strengthText(e)
+                    strengthText(e),
+                    e.getUseCount()
             });
         }
     }
@@ -996,12 +1053,25 @@ public class MainFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "请先选中一条记录", "提示", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
+        // 打开详情视为一次使用：累加使用次数（对齐安卓 bumpUse，不更新时间戳避免打乱排序）
+        service.bumpUse(selected.getId());
         EntryDetailDialog detail = new EntryDetailDialog(this, selected, service, key);
         detail.setVisible(true);
-        if (detail.isChanged()) {
-            // 详情中编辑保存或恢复了历史密码：重新载入列表（强度列按新密码重算）
-            refreshTable(null, null);
-        }
+        // 无论详情是否编辑保存，次数可能已变化，统一重载列表（强度列按新密码重算）
+        refreshTable(null, null);
+    }
+
+    /** 单击收藏列切换收藏状态（对齐安卓收藏：置顶 + ☆ 金色标识） */
+    private void toggleFavorite(Entry e) {
+        boolean next = !e.isFavorite();
+        service.setFavorite(e.getId(), next);
+        statusLabel.setText(next ? "已收藏：" + nullToEmpty(e.getPlatform()) : "已取消收藏：" + nullToEmpty(e.getPlatform()));
+        refreshTable(null, null);
+    }
+
+    /** 检查更新：多源（CDN/镜像/直连）检查新版本，命中源提示源名并打开下载页 */
+    private void checkForUpdate() {
+        new UpdateDialog(this, APP_VERSION).setVisible(true);
     }
 
     /** 列表行右键菜单：复制账号/密码/邮箱（统一走 ClipboardSafe 30 秒自动清除） */

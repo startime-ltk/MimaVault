@@ -4,6 +4,7 @@ import com.mimavault.db.DatabaseManager;
 import com.mimavault.model.Entry;
 import com.mimavault.model.PasswordHistoryItem;
 import com.mimavault.util.AesUtil;
+import com.mimavault.util.EntrySorter;
 
 import javax.crypto.SecretKey;
 import java.util.ArrayList;
@@ -388,8 +389,12 @@ public class PasswordService {
         return db.getAllEntries();
     }
 
-    /** 搜索（加密字段不解密；分类专属字段在内存层按关键词补充命中） */
+    /** 搜索（加密字段不解密；分类专属字段在内存层按关键词补充命中）；结果按四梯队排序 */
     public List<Entry> search(String keyword, String category, javax.crypto.SecretKey key) {
+        return EntrySorter.sort(searchRaw(keyword, category, key), null);
+    }
+
+    private List<Entry> searchRaw(String keyword, String category, javax.crypto.SecretKey key) {
         List<Entry> dbHit = db.searchEntries(keyword, category);
         if (keyword == null || keyword.trim().isEmpty()) {
             return dbHit;
@@ -445,6 +450,16 @@ public class PasswordService {
             return false;
         }
         return false;
+    }
+
+    /** 使用动作累加：点开条目后调用（与安卓端 bumpUse 对齐，不更新 updated_at） */
+    public void bumpUse(long id) {
+        db.incrementUseCount(id);
+    }
+
+    /** 收藏开关：切换条目收藏状态（与安卓端收藏对齐） */
+    public void setFavorite(long id, boolean favorite) {
+        db.setFavorite(id, favorite);
     }
 
     public void delete(long id) {

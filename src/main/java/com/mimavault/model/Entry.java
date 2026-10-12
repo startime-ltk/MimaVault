@@ -38,6 +38,8 @@ public class Entry {
     private String totpSecretEnc; // TOTP 动态验证码（otpauth:// 链接，AES-256-GCM 加密存储，可空）
     private String extraEnc;      // 分类专属字段（WiFi/银行卡/证件/API Key），JSON 字符串整体 AES-256-GCM 加密存储（可空）
     private String syncStatus;    // 同步状态（默认 local，为后期手机互联预留）
+    private long useCount;        // 使用次数（点开详情累计，对齐安卓 use_count）
+    private boolean favorite;     // 是否收藏（对齐安卓 is_favorite）
     private Date createdAt;       // 创建时间
     private Date updatedAt;       // 更新时间
     private Date deletedAt;       // 回收站删除时间（null 表示未删除）
@@ -196,6 +198,22 @@ public class Entry {
 
     public void setExtraEnc(String extraEnc) {
         this.extraEnc = extraEnc;
+    }
+
+    public long getUseCount() {
+        return useCount;
+    }
+
+    public void setUseCount(long useCount) {
+        this.useCount = useCount;
+    }
+
+    public boolean isFavorite() {
+        return favorite;
+    }
+
+    public void setFavorite(boolean favorite) {
+        this.favorite = favorite;
     }
 
     /** 将分类专属字段 Map 序列化为 JSON 字符串（加密前的明文载体） */

@@ -70,7 +70,9 @@ public class DatabaseManager {
                         + "totp_secret_enc TEXT,"
                         + "sync_status TEXT DEFAULT 'local',"
                         + "created_at INTEGER,"
-                        + "updated_at INTEGER)");
+                        + "updated_at INTEGER,"
+                        + "use_count INTEGER DEFAULT 0,"
+                        + "is_favorite INTEGER DEFAULT 0)");
                 stmt.executeUpdate("CREATE INDEX IF NOT EXISTS idx_entries_platform ON entries(platform)");
                 stmt.executeUpdate("CREATE INDEX IF NOT EXISTS idx_entries_category ON entries(category)");
                 // 密码历史版本表：改密前的旧密码（密文存储），与 entries 解耦，旧库升级仅新增该表
@@ -89,6 +91,9 @@ public class DatabaseManager {
             ensureColumn("entries", "totp_secret_enc", "TEXT");
             // 分类专属字段（WiFi/银行卡/证件/API Key）：加密 JSON 整体存储，与安卓端对齐
             ensureColumn("entries", "extra_enc", "TEXT");
+            // 使用次数与收藏：旧库自动补列迁移，与安卓端 A9.13.0 对齐
+            ensureColumn("entries", "use_count", "INTEGER DEFAULT 0");
+            ensureColumn("entries", "is_favorite", "INTEGER DEFAULT 0");
             // 失败锁定持久化：失败计数 + 锁定截止（wall 毫秒）+ 单调锚点（nanoTime/wall 对）
             ensureColumn("settings", "login_failed_count", "INTEGER DEFAULT 0");
             ensureColumn("settings", "login_lock_until", "INTEGER");
@@ -254,8 +259,8 @@ public class DatabaseManager {
 
     /** 插入条目 */
     public long insertEntry(Entry e) {
-        String sql = "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, sync_status, created_at, updated_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String sql = "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, sync_status, use_count, is_favorite, created_at, updated_at) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             long now = System.currentTimeMillis();
@@ -270,8 +275,10 @@ public class DatabaseManager {
             ps.setString(9, e.getGestureSeq());
             ps.setString(10, e.getTotpSecretEnc());
             ps.setString(11, e.getSyncStatus());
-            ps.setLong(12, now);
-            ps.setLong(13, now);
+            ps.setLong(12, e.getUseCount());
+            ps.setInt(13, e.isFavorite() ? 1 : 0);
+            ps.setLong(14, now);
+            ps.setLong(15, now);
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) {
@@ -286,7 +293,7 @@ public class DatabaseManager {
 
     /** 更新条目 */
     public void updateEntry(Entry e) {
-        String sql = "UPDATE entries SET category=?, platform=?, account=?, password_enc=?, phone=?, email=?, note=?, image_path=?, gesture_seq=?, totp_secret_enc=?, extra_enc=?, updated_at=? WHERE id=?";
+        String sql = "UPDATE entries SET category=?, platform=?, account=?, password_enc=?, phone=?, email=?, note=?, image_path=?, gesture_seq=?, totp_secret_enc=?, extra_enc=?, use_count=?, is_favorite=?, updated_at=? WHERE id=?";
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, e.getCategory());
@@ -300,8 +307,10 @@ public class DatabaseManager {
             ps.setString(9, e.getGestureSeq());
             ps.setString(10, e.getTotpSecretEnc());
             ps.setString(11, e.getExtraEnc());
-            ps.setLong(12, System.currentTimeMillis());
-            ps.setLong(13, e.getId());
+            ps.setLong(12, e.getUseCount());
+            ps.setInt(13, e.isFavorite() ? 1 : 0);
+            ps.setLong(14, System.currentTimeMillis());
+            ps.setLong(15, e.getId());
             ps.executeUpdate();
         } catch (SQLException ex) {
             throw new IllegalStateException("更新条目失败", ex);
@@ -495,6 +504,31 @@ public class DatabaseManager {
         return null;
     }
 
+    /** 使用动作累加：use_count + 1（不更新 updated_at，避免干扰列表排序语义，与安卓端一致） */
+    public void incrementUseCount(long id) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE entries SET use_count = use_count + 1 WHERE id=?")) {
+            ps.setLong(1, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("累加使用次数失败", e);
+        }
+    }
+
+    /** 收藏开关：is_favorite 置 0/1 */
+    public void setFavorite(long id, boolean favorite) {
+        try (Connection conn = connect();
+             PreparedStatement ps = conn.prepareStatement(
+                     "UPDATE entries SET is_favorite=? WHERE id=?")) {
+            ps.setInt(1, favorite ? 1 : 0);
+            ps.setLong(2, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("设置收藏失败", e);
+        }
+    }
+
     /** 清空全部条目（导入覆盖模式使用，连带清理密码历史） */
     public void clearEntries() {
         try (Connection conn = connect();
@@ -511,8 +545,8 @@ public class DatabaseManager {
         try (Connection conn = connect()) {
             conn.setAutoCommit(false);
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, extra_enc, sync_status, created_at, updated_at) "
-                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                    "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, extra_enc, sync_status, use_count, is_favorite, created_at, updated_at) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
                 for (Entry e : entries) {
                     ps.setString(1, e.getCategory() == null ? Entry.CATEGORY_WEBSITE : e.getCategory());
                     ps.setString(2, e.getPlatform());
@@ -526,8 +560,10 @@ public class DatabaseManager {
                     ps.setString(10, e.getTotpSecretEnc());
                     ps.setString(11, e.getExtraEnc());
                     ps.setString(12, e.getSyncStatus() == null ? "local" : e.getSyncStatus());
-                    ps.setLong(13, e.getCreatedAt() == null ? System.currentTimeMillis() : e.getCreatedAt().getTime());
-                    ps.setLong(14, e.getUpdatedAt() == null ? System.currentTimeMillis() : e.getUpdatedAt().getTime());
+                    ps.setLong(13, e.getUseCount());
+                    ps.setInt(14, e.isFavorite() ? 1 : 0);
+                    ps.setLong(15, e.getCreatedAt() == null ? System.currentTimeMillis() : e.getCreatedAt().getTime());
+                    ps.setLong(16, e.getUpdatedAt() == null ? System.currentTimeMillis() : e.getUpdatedAt().getTime());
                     ps.addBatch();
                 }
                 ps.executeBatch();
@@ -703,6 +739,16 @@ public class DatabaseManager {
             e.setExtraEnc(null); // 老库升级前的行不含该列（极端情况兜底）
         }
         e.setSyncStatus(rs.getString("sync_status"));
+        try {
+            e.setUseCount(rs.getLong("use_count"));
+        } catch (SQLException ignore) {
+            e.setUseCount(0); // 老库升级前的行不含该列（极端情况兜底）
+        }
+        try {
+            e.setFavorite(rs.getInt("is_favorite") == 1);
+        } catch (SQLException ignore) {
+            e.setFavorite(false); // 老库升级前的行不含该列（极端情况兜底）
+        }
         long created = rs.getLong("created_at");
         long updated = rs.getLong("updated_at");
         long deleted = rs.getLong("deleted_at");

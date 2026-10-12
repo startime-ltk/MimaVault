@@ -31,7 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 全局搜索面板（v8.34.0）
+ * 全局搜索面板（v8.35.0）
  *
  * Ctrl+K 全局唤起：
  *  - 输入普通关键词：跨条目（含四分类专属字段、备注、回收站外全部条目）模糊子序列匹配，
