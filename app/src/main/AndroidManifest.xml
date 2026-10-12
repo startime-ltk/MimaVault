@@ -3,6 +3,9 @@
 
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- A9.14.0：仅更新通道联网，数据不上传 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".MimaVaultApp"
@@ -34,6 +37,17 @@
         <activity android:name=".ui.SecurityReportActivity" android:exported="false" />
         <activity android:name=".ui.PasswordHistoryActivity" android:exported="false" />
         <activity android:name=".ui.ChangeMasterPasswordActivity" android:exported="false" />
+
+        <!-- A9.14.0：更新安装包经 FileProvider 提供给系统安装器 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

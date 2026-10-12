@@ -1,6 +1,7 @@
 package com.mimavault.ui;
 
 import android.app.AlertDialog;
+import android.app.ProgressDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -31,6 +32,7 @@ import com.mimavault.model.Entry;
 import com.mimavault.service.BackupService;
 import com.mimavault.service.GestureUnlockHelper;
 import com.mimavault.service.PasswordService;
+import com.mimavault.service.UpdateChecker;
 import com.mimavault.service.VaultSession;
 import com.mimavault.util.AesUtil;
 import com.mimavault.util.CsvUtil;
@@ -128,6 +130,8 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         service = new PasswordService(MimaVaultApp.db());
+        // A9.14.0 安装后清理：删除此前已交给系统安装器的 APK（仅精确文件）
+        UpdateChecker.cleanupPending(this);
 
         // 状态栏适配：渐变 Header 下移避开状态栏（背景向上延伸覆盖状态栏区域）
         InsetsUtil.applyTopInset(findViewById(R.id.header));
@@ -327,6 +331,10 @@ public class MainActivity extends AppCompatActivity {
         labels.add(getString(R.string.security_report));
         actions.add(() -> SecurityReportActivity.start(this));
 
+        // A9.14.0：检查更新（仅更新通道联网，数据不上传）
+        labels.add(getString(R.string.check_update_menu));
+        actions.add(this::checkUpdate);
+
         // 修改主密码：需先验证当前主密码，成功后全量重加密
         labels.add(getString(R.string.change_master_menu));
         actions.add(() -> verifyMasterThen(() -> ChangeMasterPasswordActivity.start(MainActivity.this)));
@@ -349,6 +357,76 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.app_name)
                 .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
                 .show();
+    }
+
+    /** A9.14.0：检查更新 → 提示 → 下载（显示进度）→ FileProvider 调系统安装器 */
+    private void checkUpdate() {
+        final ProgressDialog pd = new ProgressDialog(this);
+        pd.setMessage(getString(R.string.check_update_checking));
+        pd.setCancelable(false);
+        pd.show();
+        new Thread(() -> {
+            try {
+                String currentVersion;
+                try {
+                    currentVersion = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                } catch (Exception ex) {
+                    currentVersion = "0";
+                }
+                final UpdateChecker.UpdateInfo info = UpdateChecker.checkRemote(currentVersion);
+                main.post(() -> {
+                    pd.dismiss();
+                    if (info == null) {
+                        Toast.makeText(this, R.string.check_update_latest, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    new AlertDialog.Builder(this)
+                            .setTitle(R.string.check_update_found_title)
+                            .setMessage(getString(R.string.check_update_found_message, info.version))
+                            .setPositiveButton(R.string.check_update_now, (d, w) -> downloadAndInstall(info))
+                            .setNegativeButton(R.string.cancel, null)
+                            .show();
+                });
+            } catch (Exception e) {
+                main.post(() -> {
+                    pd.dismiss();
+                    Toast.makeText(this, R.string.check_update_check_failed, Toast.LENGTH_SHORT).show();
+                });
+            }
+        }).start();
+    }
+
+    private void downloadAndInstall(UpdateChecker.UpdateInfo info) {
+        final ProgressDialog pd = new ProgressDialog(this);
+        pd.setTitle(getString(R.string.check_update_downloading));
+        pd.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
+        pd.setMax(100);
+        pd.setCancelable(false);
+        pd.show();
+        new Thread(() -> {
+            try {
+                final File apk = UpdateChecker.downloadApk(this, info.apkName,
+                        (done, total) -> main.post(() -> {
+                            int pct = total > 0 ? (int) (done * 100 / total) : 0;
+                            pd.setProgress(Math.min(pct, 100));
+                        }));
+                main.post(() -> {
+                    pd.dismiss();
+                    try {
+                        UpdateChecker.installApk(this, apk);
+                    } catch (Exception e) {
+                        Toast.makeText(this, R.string.update_install_failed, Toast.LENGTH_SHORT).show();
+                    }
+                });
+            } catch (Exception e) {
+                main.post(() -> {
+                    pd.dismiss();
+                    Toast.makeText(this,
+                            getString(R.string.check_update_download_failed, e.getMessage()),
+                            Toast.LENGTH_LONG).show();
+                });
+            }
+        }).start();
     }
 
     /** 设置 / 修改 / 清除手势密码统一入口：先弹主密码验证框，通过后才继续 */
