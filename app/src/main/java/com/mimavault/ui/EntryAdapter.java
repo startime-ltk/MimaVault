@@ -20,10 +20,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 条目列表适配器：支持"按首字母分组排序 + 组头"模式。
- * 分组规则见 PinyinUtil：A-Z 组 + # 组（数字/符号/无法归组）。
- * 组头作为独立 viewType 插入条目之间，索引条据此做字母 → 列表位置映射。
- * A9.13.0 排序规则：收藏置顶 → 使用次数多者在前 → 组内/整体按首字母升序。
+ * 条目列表适配器：支持"按首字符分组排序 + 组头"模式。
+ * A9.13.0 起排序规则：收藏置顶 → 使用次数多者在前 → 组内/整体按首字母升序。
+ * A9.15.0 第三级改为中英文混合拼音排序：首字符为英文/数字的条目整体排在前面
+ * （内部按字符序），首字符为中文的条目整体排在后面（内部按拼音序）；
+ * 数字/符号/空名归 "#" 组置最前，英文归 A-Z 组，中文按拼音首字母归 A-Z 组，
+ * 中文段与英文段同字母时重复插入组头（索引条按首个位置跳转）。
  */
 public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
@@ -51,8 +53,8 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     }
 
     /**
-     * 分组模式：先按 收藏置顶 → 使用次数降序 → 组内拼音 排序，再插入组头。
-     * 收藏条目整体前置（跨字母组），仍与其它条目同列表展示。
+     * 分组模式：先按 收藏置顶 → 使用次数降序 → 中英文混合拼音 排序，再插入组头。
+     * 收藏条目整体前置（跨语言段），仍与其它条目同列表展示。
      */
     public void setGroupedData(List<Entry> data) {
         entries.clear();
@@ -74,13 +76,14 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
                     if (uc != 0) {
                         return uc;
                     }
-                    // 3) 首字母/拼音升序
-                    String ga = PinyinUtil.groupOf(a.getPlatform());
-                    String gb = PinyinUtil.groupOf(b.getPlatform());
-                    int r = Integer.compare(PinyinUtil.rankOf(ga), PinyinUtil.rankOf(gb));
-                    if (r != 0) {
-                        return r;
+                    // 3) 中英文混合拼音：英文/数字首字符整体在前，中文整体在后
+                    int lp = Integer.compare(
+                            PinyinUtil.langPriority(a.getPlatform()),
+                            PinyinUtil.langPriority(b.getPlatform()));
+                    if (lp != 0) {
+                        return lp;
                     }
+                    // 同类内部：英文/数字按字符序，中文按拼音全拼
                     String ka = PinyinUtil.sortKey(a.getPlatform());
                     String kb = PinyinUtil.sortKey(b.getPlatform());
                     int c = ka.compareTo(kb);
@@ -92,13 +95,18 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
                     return na.compareToIgnoreCase(nb);
                 }
             });
-            String lastGroup = null;
+            String lastGroupKey = null;
             for (Entry e : sorted) {
                 String g = PinyinUtil.groupOf(e.getPlatform());
-                if (!g.equals(lastGroup)) {
+                // 组头唯一性按"语言段:字母"区分：英文 A 与中文拼音 A 是两个组头
+                String gk = PinyinUtil.langPriority(e.getPlatform()) + ":" + g;
+                if (!gk.equals(lastGroupKey)) {
                     rows.add(g);
-                    groupPos.put(g, rows.size() - 1);
-                    lastGroup = g;
+                    // groupPos 仅记录首个位置（供索引条跳转/高亮），重复段保留实际组头
+                    if (!groupPos.containsKey(g)) {
+                        groupPos.put(g, rows.size() - 1);
+                    }
+                    lastGroupKey = gk;
                 }
                 rows.add(e);
             }
@@ -124,6 +132,7 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
     /**
      * 定位某字母所在组的首行位置；该字母组不存在时，返回其后最近一个存在的组，
      * 若其后也没有则返回 null。
+     * A9.15.0：# 数字/符号组位于列表最前，点击非 # 字母时跳过 # 组。
      */
     public Integer positionOfLetterOrNext(String letter) {
         if (rows.isEmpty()) {
@@ -137,6 +146,10 @@ public class EntryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
         Integer best = null;
         for (Map.Entry<String, Integer> e : groupPos.entrySet()) {
             int r = PinyinUtil.rankOf(e.getKey());
+            // 数字/符号 # 组已置于列表最前，点击字母时不应回跳到它
+            if (targetRank < PinyinUtil.GROUP_COUNT - 1 && r == PinyinUtil.GROUP_COUNT - 1) {
+                continue;
+            }
             if (r >= targetRank) {
                 best = e.getValue();
                 break;

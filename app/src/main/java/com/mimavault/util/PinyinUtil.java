@@ -64,6 +64,19 @@ public final class PinyinUtil {
     }
 
     /**
+     * 语言优先级（A9.15.0 中英文混合排序用）：
+     * 首字符为英文字母 / 数字 / 其它符号 → 0（整体排在前面）；
+     * 首字符为中文 → 1（整体排在后面，中文内部再按拼音序）。
+     */
+    public static int langPriority(String name) {
+        String text = name == null ? "" : name.trim();
+        if (text.isEmpty()) {
+            return 0;
+        }
+        return Pinyin.isChinese(text.charAt(0)) ? 1 : 0;
+    }
+
+    /**
      * 计算展示名的拼音排序 key（小写，无音调）。
      * 中文转全拼，英文/数字原样小写保留，其余符号按原字符追加。
      */
