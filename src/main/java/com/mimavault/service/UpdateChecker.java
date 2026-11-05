@@ -19,8 +19,9 @@ import java.util.regex.Pattern;
  *      1) jsDelivr CDN：https://cdn.jsdelivr.net/gh/startime-ltk/MimaVault@main/output/version.txt
  *      2) GitHub 代理镜像：https://ghfast.top/https://raw.githubusercontent.com/startime-ltk/MimaVault/main/output/version.txt
  *      3) GitHub 直连：https://raw.githubusercontent.com/startime-ltk/MimaVault/main/output/version.txt
- *    内容格式：版本号|安装包文件名，如 "8.35.0|MimaVault-安装程序_v8.35.0.exe"
- *  - 下载：命中源后由系统浏览器打开同一源的安装包地址（<源安装包基础URL>/<文件名>）
+ *    内容格式：版本号|安装包文件名（同源下载）或 版本号|完整下载URL（Releases 资产直链），
+ *    如 "8.35.1|https://ghfast.top/https://github.com/startime-ltk/MimaVault/releases/download/v8.35.1/MimaVault-Setup-v8.35.1.exe"
+ *  - 下载：命中源后由系统浏览器打开安装包地址（<源安装包基础URL>/<文件名>，或 version.txt 中的完整 URL）
  *  - 版本比较：按 . - _ 分段，每段取首个连续数字块比较，容错非数字段（v8.35.0 == 8.35.0）
  */
 public final class UpdateChecker {
@@ -55,8 +56,11 @@ public final class UpdateChecker {
             this.packageBaseUrl = packageBaseUrl;
         }
 
-        /** 命中源对应的安装包完整下载地址 */
+        /** 命中源对应的安装包完整下载地址（version.txt 第二段可为完整 URL，直接透传） */
         public String packageUrl() {
+            if (packageName.startsWith("http://") || packageName.startsWith("https://")) {
+                return packageName;
+            }
             return packageBaseUrl + packageName;
         }
     }
