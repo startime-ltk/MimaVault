@@ -62,7 +62,7 @@ public class MainFrame extends JFrame {
     private final List<Long> hotIds = new ArrayList<>();
 
     /** 当前应用版本号（检查更新 / 版本展示统一入口） */
-    public static final String APP_VERSION = "8.35.2";
+    public static final String APP_VERSION = "8.35.3";
 
     // ---------- 全局搜索（v8.35.0） ----------
     /** 内存索引：跨条目（含四分类专属字段、备注，回收站外全部条目）模糊匹配 */

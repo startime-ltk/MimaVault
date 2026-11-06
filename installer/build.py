@@ -85,8 +85,8 @@ def main():
     text = text.replace(
         ";    主列表四梯队排序（收藏☆ → 热门Top3* → 字母拼音 → #特殊符号）\n",
         ";    主列表四梯队排序（收藏☆ → 热门Top3* → 字母拼音 → #特殊符号）\n"
-        ";  - v%s 新增：数据目录丢失时不再静默覆盖定位文件，启动前弹窗提示并可重新指定\n"
-        ";    （修复：数据目录被移动后，应用静默回退空库并改写定位文件，界面显示 0 条）\n" % version)
+        ";  - v%s 新增：数据目录不见了时自动扫描本机，列出所有含密码库的目录及记录条数，\n"
+        ";    按条数选中即可切换，不必自己记路径（扫描全程只读，不改动任何文件）\n" % version)
     iss = os.path.join(INSTALLER_DIR, "installer_mimavault_v%s.iss" % version)
     open(iss, "w", encoding="utf-8").write(text)
     print("生成安装脚本：%s" % iss, flush=True)
