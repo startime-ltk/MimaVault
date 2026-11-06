@@ -38,6 +38,16 @@ public class AppConfig {
     /** 数据目录（用户可自选，默认 = 程序目录/data），运行时可变，调用方统一经本字段取路径 */
     public static Path DATA_DIR = DEFAULT_DATA_DIR;
 
+    /**
+     * 定位文件指向、但实际已不存在的目录。
+     *
+     * <p>非 null 表示"上次的数据目录不见了"——通常是数据被移动/删除/盘符变化。
+     * 这条信息必须留给界面提示用户，<b>绝不能在启动时静默覆盖定位文件</b>：
+     * 一旦覆盖，用户就再也无从知道原来的数据在哪了（2026-11-06 真实踩坑：
+     * 数据目录被整理到别处后，应用静默回退到空库并改写定位文件，界面显示 0 条）。
+     */
+    public static Path MISSING_DATA_DIR = null;
+
     /** 图片附件目录 data/images */
     public static Path IMAGE_DIR = DATA_DIR.resolve("images");
 
@@ -74,16 +84,27 @@ public class AppConfig {
      * 优先级：定位文件指向的有效目录 > 程序目录/data（旧数据兼容）> 默认目录并写回定位文件。
      */
     public static void initDataPaths() {
-        Path dir = readLocator();
-        if (dir == null || !Files.isDirectory(dir)) {
-            // 首次运行 / 定位文件缺失或损坏 / 定位目录已不存在：沿用历史默认位置（兼容旧数据）
-            dir = DEFAULT_DATA_DIR;
+        Path located = readLocator();
+
+        // 情况一：定位文件存在，但它指向的目录已经不见了。
+        // 这时绝不能静默回退并覆盖定位文件（覆盖 = 抹掉用户找回数据的唯一线索），
+        // 只把缺失路径记下来交给界面提示，本次先用默认目录保证程序能启动。
+        if (located != null && !Files.isDirectory(located)) {
+            MISSING_DATA_DIR = located;
+            setDataDir(DEFAULT_DATA_DIR);
+            return;
         }
+
+        // 情况二：定位文件正常，或首次运行（无定位文件）
+        Path dir = (located != null) ? located : DEFAULT_DATA_DIR;
         setDataDir(dir);
-        try {
-            saveLocator(DATA_DIR);
-        } catch (IOException ignored) {
-            // 定位文件写入失败不阻塞启动（下次启动仍按默认 data 兼容）
+        MISSING_DATA_DIR = null;
+        if (located == null) {
+            try {
+                saveLocator(DATA_DIR);
+            } catch (IOException ignored) {
+                // 定位文件写入失败不阻塞启动（下次启动仍按默认 data 兼容）
+            }
         }
     }
 

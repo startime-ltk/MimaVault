@@ -1,8 +1,9 @@
 ; ============================================================
 ; 密匣 MimaVault 安装脚本 (v8.35.1)
 ; 说明：
-;  - 安装目录默认可由用户修改（未设置 DisableDirPage，Wizard 默认显示"选择安装位置"页）
-;  - DefaultDirName 仅在用户未手动更改时使用，安装过程中仍可随时改到任意位置
+;  - 安装目录默认自动落在非系统盘（本机 F:\Programs\密匣 MimaVault）
+;  - DisableDirPage=no：显式显示"选择安装位置"页，用户可改到任意位置
+;  - 若用户仍选了系统盘，会弹确认框提醒（默认按钮为"否"）
 ;  - 权限为当前用户级（PrivilegesRequired=lowest），无需管理员即可安装
 ;  - 数据目录与安装目录解耦：程序首次运行默认把数据写到 {app}\data，
 ;    用户可在主界面「数据目录」中把数据迁移到任意位置
@@ -14,8 +15,9 @@
 AppName=密匣 MimaVault
 AppVersion=8.35.1
 AppPublisher=startime-ltk
-DefaultDirName={localappdata}\Programs\MimaVault
+DefaultDirName={code:GetDefaultInstallDir}
 PrivilegesRequired=lowest
+DisableDirPage=no
 DisableProgramGroupPage=yes
 OutputDir=F:\项目成品安装包以及源码\密码大师 MimaVault\成品安装包
 OutputBaseFilename=密匣MimaVault安装程序_v8.35.1
@@ -26,8 +28,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName=密匣 MimaVault
 
 [Files]
-; Source 指向 jpackage 生成的 app-image（每次打包后由 F:\Java\work\MimaVault\target\MimaVault.jar 重新生成）
-Source: "C:\Users\25323\AppData\Roaming\Tencent\Marvis\User\427DB28A6D593974C57919E2E330E344\workspace\conv_19fa4164394_39e9fc071869\temp\jpackage-out-v8351\密匣 MimaVault\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Source 指向 F 盘上的干净 app-image（不再依赖 C 盘临时目录，临时目录被清理后会打出坏包）
+Source: "F:\项目成品安装包以及源码\密码大师 MimaVault\成品安装包\_v8351\密匣 MimaVault\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"
@@ -40,3 +42,46 @@ Name: "{autoprograms}\卸载密匣 MimaVault"; Filename: "{app}\Uninstall 密匣
 
 [Run]
 Filename: "{app}\密匣 MimaVault.exe"; Description: "立即运行密匣 MimaVault"; Flags: nowait postinstall skipifsilent; Tasks: runapp
+
+; 默认装到非系统盘；用户仍可在「选择目标位置」页自行修改
+[Code]
+const
+  AppFolderName = '密匣 MimaVault';
+
+function GetDefaultInstallDir(Param: String): String;
+var
+  I: Integer;
+  D: String;
+  Drives: String;
+begin
+  Drives := 'FDEGHIJKLMNOPQRSTUVWXYZ';
+  for I := 1 to Length(Drives) do
+  begin
+    D := Drives[I] + ':';
+    if DirExists(D + '\') then
+    begin
+      Result := D + '\Programs\' + AppFolderName;
+      Exit;
+    end;
+  end;
+  Result := ExpandConstant('{autopf}') + '\' + AppFolderName;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  SysDrive: String;
+begin
+  Result := True;
+  if CurPageID = wpSelectDir then
+  begin
+    SysDrive := Copy(ExpandConstant('{win}'), 1, 2);
+    if CompareText(Copy(WizardForm.DirEdit.Text, 1, 2), SysDrive) = 0 then
+    begin
+      Result := MsgBox(
+        '你选择的位置在系统盘 ' + SysDrive + ' 上。' + #13#10 + #13#10 +
+        '建议改到其它盘（例如 F:\Programs\...），避免占用系统盘空间。' + #13#10 +
+        '仍要装到系统盘吗？',
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+    end;
+  end;
+end;
