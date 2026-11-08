@@ -71,7 +71,7 @@ import java.util.concurrent.ThreadFactory;
  * "浏览器误打 / 别的用户 / 意外暴露"，<b>挡不住本机同用户的恶意程序</b>。真正的隔离边界是
  * Windows 用户账户。
  *
- * @since 8.36.0
+ * @since 8.35.5
  */
 public final class LocalApiServer {
 

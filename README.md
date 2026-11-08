@@ -6,7 +6,7 @@
 
 | 平台 | 版本 | 下载 |
 | --- | --- | --- |
-| Windows PC | v8.35.4 | [安装程序 MimaVault-Setup-v8.35.4.exe](https://github.com/startime-ltk/MimaVault/releases/download/v8.35.4/MimaVault-Setup-v8.35.4.exe) |
+| Windows PC | v8.35.5 | [安装程序 MimaVault-Setup-v8.35.5.exe](https://github.com/startime-ltk/MimaVault/releases/download/v8.35.5/MimaVault-Setup-v8.35.5.exe) |
 | Android | A9.9.16 | [MimaVault-A9.9.16.apk](https://github.com/startime-ltk/MimaVault/releases/download/A9.9.16/MimaVault-A9.9.16.apk) |
 
 全部版本见 [Releases](https://github.com/startime-ltk/MimaVault/releases)。
@@ -87,7 +87,7 @@ PC 端源码在 `main` 分支，安卓端源码在 `android` 分支。
 ```
 
 ```text
-8.35.4|https://ghfast.top/https://github.com/startime-ltk/MimaVault/releases/download/v8.35.4/MimaVault-Setup-v8.35.4.exe|8deadce1…
+8.35.5|https://ghfast.top/https://github.com/startime-ltk/MimaVault/releases/download/v8.35.5/MimaVault-Setup-v8.35.5.exe|6215898…
 ```
 
 第三段可选；缺省时只做 PE 头校验。
@@ -95,6 +95,16 @@ PC 端源码在 `main` 分支，安卓端源码在 `android` 分支。
 > ⚠️ **安全边界**：清单里的 SHA-256 与安装包来自同一批更新源，能防传输损坏和缓存错乱，
 > 但**防不住更新源本身被篡改**（两者会一起被替换）。真正的来源认证需要发版方非对称签名
 > —— 私钥离线签、程序内嵌公钥验，属于后续版本的工作。
+
+### 本地 API（v8.35.5 起）
+
+给 [dsh-mimavault](https://github.com/startime-ltk/dsh-mimavault) 等本机插件检索密码库用：
+
+- **默认关闭**，在托盘菜单勾选 `Local API (DSH)` 才启动，保持"不联网"的默认姿态
+- 只监听 `127.0.0.1` 的随机端口，Bearer token 鉴权，拒绝带 `Origin` / `Referer` 的请求
+- **仅在解锁期间可用**：锁定、自动登出或退出程序立即吊销并删除凭据文件
+- 接口只返回元数据；密码、备注内容、otpauth 种子一律不外泄
+- 需要明文时由本进程自己写剪贴板（复用 30 秒自清逻辑）
 
 ## 安全特性
 

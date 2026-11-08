@@ -6,7 +6,7 @@
 
     <groupId>com.mimavault</groupId>
     <artifactId>mimavault</artifactId>
-    <version>8.35.4</version>
+    <version>8.35.5</version>
     <packaging>jar</packaging>
 
     <name>MimaVault</name>
