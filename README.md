@@ -1,26 +1,81 @@
 # 密匣 MimaVault
 
-轻量化本地 PC 密码管理程序。Java 17 + Maven + Swing + SQLite + FlatLaf，数据全部本地存储、零联网。
+轻量化本地密码管理程序。Java 17 + Maven + Swing + SQLite + FlatLaf，密码库全部加密存储在本机，**默认不联网**（只有手动「检查更新」与可选的「AI 识图」会访问网络）。
 
 ## 下载（无需克隆仓库）
 
 | 平台 | 版本 | 下载 |
 | --- | --- | --- |
-| Windows PC | v8.30.2 | [安装程序 MimaVault_Setup_v8.30.2.exe](https://github.com/startime-ltk/mimavault/releases/download/v8.30.2/MimaVault_Setup_v8.30.2.exe) / [可执行 jar](https://github.com/startime-ltk/mimavault/releases/download/v8.30.2/MimaVault_v8.30.2.jar) |
-| Android | A9.9.16 | [MimaVault-A9.9.16.apk](https://github.com/startime-ltk/mimavault/releases/download/A9.9.16/MimaVault-A9.9.16.apk) |
+| Windows PC | v8.35.3 | [安装程序 MimaVault-Setup-v8.35.3.exe](https://github.com/startime-ltk/MimaVault/releases/download/v8.35.3/MimaVault-Setup-v8.35.3.exe) |
+| Android | A9.9.16 | [MimaVault-A9.9.16.apk](https://github.com/startime-ltk/MimaVault/releases/download/A9.9.16/MimaVault-A9.9.16.apk) |
 
-全部版本见 [Releases](https://github.com/startime-ltk/mimavault/releases)。PC 端源码在 `main` 分支，安卓端源码在 `android` 分支。
+全部版本见 [Releases](https://github.com/startime-ltk/MimaVault/releases)。
+
+> **关于 jar**：自 v8.35.x 起 PC 端改用 `jpackage` 打 app-image 再套 Inno Setup 安装包，不再单独发布可执行 jar。
+> 需要 jar 请自行构建（见下方「构建与运行」）。旧版 v8.30.2 仍提供了 [jar](https://github.com/startime-ltk/MimaVault/releases/download/v8.30.2/MimaVault_v8.30.2.jar)。
+
+PC 端源码在 `main` 分支，安卓端源码在 `android` 分支。
 
 ## 功能特性
 
-- 本地密码库：平台 / 账号 / 密码 / 手机 / 邮箱 / 备注 / 图片附件
-- 主密码登录保护，AES-256-GCM 加密存储所有密码字段
-- 密码生成器增强：排除易混淆字符、自定义字符集、口令短语模式
-- 密码历史版本：修改密码时密文留档最近 20 条，支持查看与恢复（与安卓端 `password_history` 表结构兼容）
-- CSV 导出默认脱敏（密码字段打码），导出明文需二次确认
-- OCR 识图：从截图 / 图片中提取密码信息
-- 智能导入：图文交叉批量识别、一键入库（支持 .docx / .txt）
-- 数据备份与恢复（导出 / 导入加密备份包）
+### 条目与分类
+
+- 7 个分类：**网站 / 应用 / 其他 / WiFi / 银行卡 / 证件 / API Key**
+- 通用字段：平台、账号、密码、手机、邮箱、备注、图片附件、九宫格手势、收藏
+- 分类专属字段（与通用字段分开、**整段加密**存放）：
+  | 分类 | 专属字段 |
+  | --- | --- |
+  | WiFi | SSID、加密方式 |
+  | 银行卡 | 卡号、持卡人、有效期、CVV、银行 |
+  | 证件 | 证件类型、号码、姓名、签发机关、有效期 |
+  | API Key | Key、接口地址、模型 / 备注 |
+- **TOTP 动态验证码**：按 `otpauth://` 链接绑定，种子加密存储，详情页直接显示 6 位码与剩余秒数
+
+### 检索与组织
+
+- 关键词搜索：平台 / 账号 / 手机 / 邮箱，并在内存层补充匹配分类专属字段
+- 分类筛选下拉
+- 四梯队排序：收藏 ★ → 热门 Top3 → 字母 / 拼音 → `#` 特殊符号
+- 回收站：软删除 30 天后自动清理
+
+### 密码工具
+
+- 随机密码生成器：长度、大小写、数字、符号、排除易混淆字符（`0O1lI`）、自定义字符集
+- 口令短语模式：词数、分隔符、首字母大写、末尾追加数字
+- 安全报告：弱口令、重复口令、已泄露口令、未设置密码
+- 密码历史：改密时密文留档最近 **20 条**，可查看与一键恢复（与安卓端 `password_history` 表结构兼容）
+
+### 数据进出
+
+- CSV 导出**默认脱敏**（密码打码），导出明文需二次确认；CSV 导入支持列名别名映射
+- 智能导入：`.docx` / `.txt` / 图片混合识别，图文交叉校验后批量入库
+- OCR 识图：从截图 / 图片中提取密码信息（内置 `chi_sim` 语言包）
+- AI 识图（可选，智谱）：接入大模型辅助识别，默认关闭
+- 加密备份包 `.pmaster`（AES-256-GCM，v2 格式在文件头携带 PBKDF2 盐与迭代次数，新旧备份都能导入）
+- 每次登录成功后自动备份到 `data/backup/`
+
+### 数据位置
+
+- 数据目录默认 `程序目录/data`，可在界面里选到其它磁盘 / 文件夹并整体迁移
+- 实际位置记录在 `%APPDATA%\MimaVault\data_location.json`，与安装目录解耦，覆盖安装不会动数据
+- **数据目录不见了会自动扫盘找回**（v8.35.3）：列出本机所有含密码库的目录及记录条数，按条数选中即可切换；扫描全程只读
+
+### 桌面集成
+
+- 系统托盘、可记忆的关闭行为（退出 / 最小化到托盘）
+- 全局快捷键：`Ctrl+Shift+M` 显示 / 隐藏主界面，`Ctrl+Shift+L` 锁定
+- 3 分钟无操作自动登出
+- 手动「检查更新」（多源策略，国内可访问）
+
+### 本地 API（`feat/local-api` 分支新增）
+
+给 [dsh-mimavault](https://github.com/startime-ltk/dsh-mimavault) 等本机插件检索密码库用：
+
+- **默认关闭**，在托盘菜单勾选 `Local API (DSH)` 才启动，保持"不联网"的默认姿态
+- 只监听 `127.0.0.1` 的随机端口，Bearer token 鉴权，拒绝带 `Origin` / `Referer` 的请求
+- **仅在解锁期间可用**：锁定、自动登出或退出程序立即吊销并删除凭据文件
+- 接口只返回元数据；密码、备注内容、otpauth 种子一律不外泄
+- 需要明文时由本进程自己写剪贴板（复用 30 秒自清逻辑）
 
 ## 安全特性
 
@@ -36,17 +91,23 @@
   4. 最后更新存储为新格式，之后登录全程走 PBKDF2。
 - 迁移安全：先预检后写库，任一条目无法解密即中止迁移且不改动任何数据；迁移失败时旧数据仍可用旧密码打开。
 
-### 2. 登录失败锁定
+### 2. 字段级加密
+
+- 密码、动态验证码种子、分类专属字段（WiFi / 银行卡 / 证件 / API Key）各自独立加密：
+  `AES-256-GCM`，随机 12 字节 IV，密文格式 `Base64(iv + ciphertext)`，GCM 自带完整性校验。
+- 解密失败抛"解密失败，主密码可能不正确"，不会静默返回错误数据。
+
+### 3. 登录失败锁定
 
 - 主密码连续输错 5 次，锁定 30 秒（登录按钮禁用 + 倒计时显示）。
 - 锁定仅保存在当前进程内存，重启程序自动解除；解锁后失败计数清零。
 
-### 3. 剪贴板自动清除
+### 4. 剪贴板自动清除
 
 - 详情页"复制"按钮通过 `util/ClipboardSafe.java` 复制密码。
 - 复制后 30 秒自动清除剪贴板；到期时若用户已复制其他内容则不清除，避免误伤。
 
-### 4. 明文内存清理
+### 5. 明文内存清理
 
 - 主密码、录入密码、导入备份密码等关键路径以 `char[]` 承载，用后立即 `Arrays.fill` 清零。
 - AES 加解密中间态字节数组用完即清；Swing API 必须使用 String 的场景除外。
@@ -58,5 +119,18 @@ mvn package -DskipTests
 java -jar target/MimaVault.jar
 ```
 
-- 数据目录：运行目录下 `data/`（`data/MimaVault.db` 为 SQLite 数据库，`data/images/` 为图片附件）。
+- 需要 JDK 17 及以上。
+- 数据目录：默认 `程序目录/data`（`MimaVault.db` 为 SQLite 数据库，`images/` 为图片附件）；若已有定位文件则以其指向的目录为准。
 - 首次运行请在登录框设置主密码，请务必牢记；主密码丢失后数据无法恢复。
+
+打包安装程序（Windows）：
+
+```bash
+python installer/build.py 8.35.3
+```
+
+依赖 `jpackage`（JDK 自带）与 Inno Setup，产物为 `密匣MimaVault安装程序_v<版本>.exe`。
+
+## 许可
+
+见仓库根目录许可文件。
