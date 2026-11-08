@@ -134,6 +134,11 @@ public class MainFrame extends JFrame {
         // 系统托盘与全局快捷键（注册失败不阻塞主流程）
         installSystemTray();
         installGlobalHotkey();
+
+        // 本地 API：只在用户显式开启过的情况下加载（默认关闭，不监听任何端口）
+        if (AppConfig.load().localApiEnabled) {
+            com.mimavault.api.LocalApiServer.get().unlock(service, key);
+        }
     }
 
     // ---------- 系统托盘 ----------
@@ -156,12 +161,17 @@ public class MainFrame extends JFrame {
             closeBehaviorItem.addActionListener(e -> showCloseChoiceDialog());
             java.awt.MenuItem dataDirItem = new java.awt.MenuItem("Migrate Data...");
             dataDirItem.addActionListener(e -> openDataMigrationDialog());
+            // 本地 API 开关（供 DSH 插件检索）：默认关闭，勾选后才监听回环端口
+            java.awt.CheckboxMenuItem apiItem = new java.awt.CheckboxMenuItem("Local API (DSH)");
+            apiItem.setState(AppConfig.load().localApiEnabled);
+            apiItem.addItemListener(e -> toggleLocalApi(apiItem.getState()));
             java.awt.MenuItem exitItem = new java.awt.MenuItem("Exit");
             exitItem.addActionListener(e -> quitApp());
             menu.add(openItem);
             menu.add(lockItem);
             menu.add(closeBehaviorItem);
             menu.add(dataDirItem);
+            menu.add(apiItem);
             menu.addSeparator();
             menu.add(exitItem);
 
@@ -214,6 +224,46 @@ public class MainFrame extends JFrame {
         new DataDirDialog(this).setVisible(true);
     }
 
+    /**
+     * 开关本地 API（供 DSH 等本机插件检索密码库）。
+     *
+     * <p>开启时立即绑定 127.0.0.1 随机端口并写入访问凭据；
+     * 关闭时立刻清空会话密钥并停止监听，不留下任何可用入口。
+     * 关闭主界面/自动登出/退出程序也会连带关闭（见 {@link #autoLogout()}、{@link #quitApp()}）。
+     *
+     * @param enabled 勾选后的新状态
+     */
+    private void toggleLocalApi(boolean enabled) {
+        AppConfig cfg = AppConfig.load();
+        cfg.localApiEnabled = enabled;
+        try {
+            cfg.save();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "保存配置失败：" + ex.getMessage(),
+                    "提示", JOptionPane.ERROR_MESSAGE);
+        }
+        if (enabled) {
+            com.mimavault.api.LocalApiServer.get().unlock(service, key);
+            if (com.mimavault.api.LocalApiServer.get().isRunning()) {
+                java.nio.file.Path desc = AppConfig.LOCATOR_FILE.getParent();
+                JOptionPane.showMessageDialog(this,
+                        "本地 API 已开启，DSH 插件现在可以检索本密码库。\n\n"
+                                + "· 仅监听本机回环地址（127.0.0.1），端口随机\n"
+                                + "· 密码/备注/验证码种子不会通过接口返回\n"
+                                + "· 锁定、3 分钟无操作自动登出或退出程序后立即失效\n"
+                                + "· 访问凭据位于 " + desc + "\\api.json\n\n"
+                                + "不需要时请回到托盘菜单取消勾选。",
+                        "本地 API (DSH)", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this,
+                        "本地 API 启动失败，请查看控制台输出。主程序功能不受影响。",
+                        "本地 API (DSH)", JOptionPane.WARNING_MESSAGE);
+            }
+        } else {
+            com.mimavault.api.LocalApiServer.get().lock();
+        }
+    }
+
     /** 关闭窗口：最小化到托盘（静默，不弹系统通知） */
     private void hideToTray() {
         if (trayIcon == null) {
@@ -233,6 +283,8 @@ public class MainFrame extends JFrame {
 
     /** 真正退出程序：先卸载托盘与热键，再结束进程 */
     private void quitApp() {
+        // 退出前务必先关掉本地 API 并清空会话密钥，别把监听留在进程残留里
+        com.mimavault.api.LocalApiServer.get().lock();
         uninstallSystemTray();
         uninstallGlobalHotkey();
         stopIdleMonitor();
@@ -366,6 +418,8 @@ public class MainFrame extends JFrame {
      */
     private void autoLogout() {
         stopIdleMonitor();
+        // 自动登出同样要立刻吊销本地 API：密钥一清，数据接口全部 401
+        com.mimavault.api.LocalApiServer.get().lock();
         uninstallSystemTray();
         uninstallGlobalHotkey();
         for (Window w : Window.getWindows()) {
