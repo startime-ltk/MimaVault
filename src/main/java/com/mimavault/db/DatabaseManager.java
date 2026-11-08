@@ -259,8 +259,11 @@ public class DatabaseManager {
 
     /** 插入条目 */
     public long insertEntry(Entry e) {
-        String sql = "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, sync_status, use_count, is_favorite, created_at, updated_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        // 注意：必须与 updateEntry 的列集合保持一致，尤其 extra_enc。
+        // 历史缺陷：此语句漏了 extra_enc，导致新建的 WiFi/银行卡/证件/API Key 条目
+        // 其分类专属字段在插入时被静默丢弃（编辑一次后又出现），属数据丢失问题。
+        String sql = "INSERT INTO entries (category, platform, account, password_enc, phone, email, note, image_path, gesture_seq, totp_secret_enc, extra_enc, sync_status, use_count, is_favorite, created_at, updated_at) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection conn = connect();
              PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             long now = System.currentTimeMillis();
@@ -274,11 +277,12 @@ public class DatabaseManager {
             ps.setString(8, e.getImagePath());
             ps.setString(9, e.getGestureSeq());
             ps.setString(10, e.getTotpSecretEnc());
-            ps.setString(11, e.getSyncStatus());
-            ps.setLong(12, e.getUseCount());
-            ps.setInt(13, e.isFavorite() ? 1 : 0);
-            ps.setLong(14, now);
+            ps.setString(11, e.getExtraEnc());
+            ps.setString(12, e.getSyncStatus());
+            ps.setLong(13, e.getUseCount());
+            ps.setInt(14, e.isFavorite() ? 1 : 0);
             ps.setLong(15, now);
+            ps.setLong(16, now);
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) {
