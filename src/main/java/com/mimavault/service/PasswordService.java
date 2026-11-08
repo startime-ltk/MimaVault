@@ -391,7 +391,55 @@ public class PasswordService {
 
     /** 搜索（加密字段不解密；分类专属字段在内存层按关键词补充命中）；结果按四梯队排序 */
     public List<Entry> search(String keyword, String category, javax.crypto.SecretKey key) {
-        return EntrySorter.sort(searchRaw(keyword, category, key), null);
+        return search(keyword, category, key, false);
+    }
+
+    /**
+     * 搜索，可选择"是否让备注参与命中"。
+     *
+     * <p>默认（{@code includeNote=false}）与主界面原有语义完全一致，不改用户既有体验。
+     * 本地 API（供 DSH 插件检索）传 {@code true}：备注内容仍<b>不会</b>被返回给调用方
+     * （见 {@code api.ApiEntryView}），只参与命中判断 —— 这样"备注里写了 apikey 用途"
+     * 这类条目能被搜到，而备注里的恢复码不会外泄。
+     *
+     * @param keyword     关键词；空表示不过滤
+     * @param category    分类；空/全部表示不过滤
+     * @param key         会话密钥
+     * @param includeNote 是否让备注内容参与命中
+     */
+    public List<Entry> search(String keyword, String category, javax.crypto.SecretKey key, boolean includeNote) {
+        List<Entry> hits = EntrySorter.sort(searchRaw(keyword, category, key), null);
+        if (!includeNote || keyword == null || keyword.trim().isEmpty()) {
+            return hits;
+        }
+        String kw = keyword.trim().toLowerCase();
+        java.util.Set<Long> hitIds = new java.util.HashSet<>();
+        for (Entry e : hits) {
+            hitIds.add(e.getId());
+        }
+        List<Entry> more = new ArrayList<>();
+        for (Entry e : db.getAllEntries()) {
+            if (hitIds.contains(e.getId())) {
+                continue;
+            }
+            if (category != null && !category.trim().isEmpty() && !"全部".equals(category.trim())
+                    && !category.trim().equals(e.getCategory())) {
+                continue;
+            }
+            if (e.getNote() != null && e.getNote().toLowerCase().contains(kw)) {
+                more.add(e);
+            }
+        }
+        if (more.isEmpty()) {
+            return hits;
+        }
+        more.addAll(hits);
+        more.sort((a, b) -> {
+            long ta = a.getUpdatedAt() == null ? 0 : a.getUpdatedAt().getTime();
+            long tb = b.getUpdatedAt() == null ? 0 : b.getUpdatedAt().getTime();
+            return Long.compare(tb, ta);
+        });
+        return more;
     }
 
     private List<Entry> searchRaw(String keyword, String category, javax.crypto.SecretKey key) {
