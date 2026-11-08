@@ -66,6 +66,15 @@ public class AppConfig {
     /** 当前数据目录（冗余记录到 config.json，便于排查；空 = 尚未写入） */
     public String dataDir = "";
 
+    /**
+     * 本地 HTTP API 开关（供 DSH 等本机插件检索密码库）。
+     *
+     * <p><b>默认 false</b>：不开就不监听任何端口，保持"零联网"的默认姿态。
+     * 用户在托盘菜单「Local API (DSH)」里显式打开后才会绑定 127.0.0.1 的随机端口，
+     * 且仅在已解锁期间可用。
+     */
+    public boolean localApiEnabled = false;
+
     static {
         initDataPaths();
     }
