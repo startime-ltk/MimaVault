@@ -1,1 +1,1 @@
-8.35.3|https://ghfast.top/https://github.com/startime-ltk/MimaVault/releases/download/v8.35.3/MimaVault-Setup-v8.35.3.exe
+8.35.3|https://ghfast.top/https://github.com/startime-ltk/MimaVault/releases/download/v8.35.3/MimaVault-Setup-v8.35.3.exe|d49acfbc442810536c65d194be869aef9e32a11805aec0e1da14ffab75cfe823
