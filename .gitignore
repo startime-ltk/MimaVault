@@ -5,3 +5,8 @@ dependency-reduced-pom.xml
 *.iml
 .vscode/
 *.log
+temp/
+*.mv.db
+*.trace.db
+config.properties
+location.properties
