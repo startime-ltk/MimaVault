@@ -62,7 +62,7 @@ public class MainFrame extends JFrame {
     private final List<Long> hotIds = new ArrayList<>();
 
     /** 当前应用版本号（检查更新 / 版本展示统一入口） */
-    public static final String APP_VERSION = "8.35.6";
+    public static final String APP_VERSION = "8.35.7";
 
     // ---------- 全局搜索（v8.35.0） ----------
     /** 内存索引：跨条目（含四分类专属字段、备注，回收站外全部条目）模糊匹配 */
@@ -529,11 +529,7 @@ public class MainFrame extends JFrame {
         row2.add(createToolButton("回收站", e -> onTrash()));
         row2.add(createToolButton("导出", e -> onExport()));
         row2.add(createToolButton("导入", e -> onImport()));
-        // 修改主密码入口：验证当前密码 → 全库重加密 → 更新内存密钥
-        row2.add(createToolButton("修改主密码", e -> onChangeMaster()));
-        // 检查更新入口：多源（CDN/镜像/直连）检查新版本，程序内下载+静默覆盖安装（v8.35.4）
-        row2.add(createToolButton("检查更新", e -> checkForUpdate()));
-        // 关于：当前版本 / 检查更新 / 作者 GitHub 主页（v8.35.6）
+        // 关于（v8.35.7）：版本 / 修改主密码 / 检查更新 / 作者与 DSH 插件链接
         row2.add(createToolButton("关于", e -> onAbout()));
         top.add(row2);
 
@@ -1147,9 +1143,9 @@ public class MainFrame extends JFrame {
         new UpdateDialog(this, APP_VERSION).setVisible(true);
     }
 
-    /** 关于：版本信息 + 检查更新 + 作者主页 */
+    /** 关于：版本信息 + 修改主密码 + 检查更新 + 作者/插件链接 */
     private void onAbout() {
-        new AboutDialog(this, APP_VERSION).setVisible(true);
+        new AboutDialog(this, APP_VERSION, this::onChangeMaster, this::checkForUpdate).setVisible(true);
     }
 
     /** 列表行右键菜单：复制账号/密码/邮箱（统一走 ClipboardSafe 30 秒自动清除） */
