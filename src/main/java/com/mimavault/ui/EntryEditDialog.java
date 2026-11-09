@@ -172,7 +172,9 @@ public class EntryEditDialog extends JDialog {
         gbc.gridx = 1;
         form.add(extraCard, gbc);
         categoryBox.addActionListener(e -> showExtraFor((String) categoryBox.getSelectedItem()));
-        showExtraFor(entry.getCategory() == null ? Entry.CATEGORY_WEBSITE : entry.getCategory());
+        // 注意：这里必须用 this.entry —— 构造参数 entry 在「新增」时是 null，
+        // 误用参数会让弹窗在构造阶段直接 NPE，表现为点「新增」毫无反应（v8.33.0 起的回归）。
+        showExtraFor(this.entry.getCategory() == null ? Entry.CATEGORY_WEBSITE : this.entry.getCategory());
 
         // 图片附件
         row++;

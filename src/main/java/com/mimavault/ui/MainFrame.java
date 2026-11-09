@@ -62,7 +62,7 @@ public class MainFrame extends JFrame {
     private final List<Long> hotIds = new ArrayList<>();
 
     /** 当前应用版本号（检查更新 / 版本展示统一入口） */
-    public static final String APP_VERSION = "8.35.5";
+    public static final String APP_VERSION = "8.35.6";
 
     // ---------- 全局搜索（v8.35.0） ----------
     /** 内存索引：跨条目（含四分类专属字段、备注，回收站外全部条目）模糊匹配 */
@@ -533,6 +533,8 @@ public class MainFrame extends JFrame {
         row2.add(createToolButton("修改主密码", e -> onChangeMaster()));
         // 检查更新入口：多源（CDN/镜像/直连）检查新版本，程序内下载+静默覆盖安装（v8.35.4）
         row2.add(createToolButton("检查更新", e -> checkForUpdate()));
+        // 关于：当前版本 / 检查更新 / 作者 GitHub 主页（v8.35.6）
+        row2.add(createToolButton("关于", e -> onAbout()));
         top.add(row2);
 
         centerBox.add(top, BorderLayout.NORTH);
@@ -1017,12 +1019,29 @@ public class MainFrame extends JFrame {
     }
 
     private void onAdd() {
-        EntryEditDialog dlg = new EntryEditDialog(this, null, key);
-        dlg.setVisible(true);
-        if (dlg.isSaved()) {
-            service.addEntry(dlg.getEntry(), dlg.getPlainPassword(), key);
-            refreshTable(null, null);
+        try {
+            EntryEditDialog dlg = new EntryEditDialog(this, null, key);
+            dlg.setVisible(true);
+            if (dlg.isSaved()) {
+                service.addEntry(dlg.getEntry(), dlg.getPlainPassword(), key);
+                refreshTable(null, null);
+            }
+        } catch (RuntimeException | Error t) {
+            // 打出来的安装包没有控制台，UI 异常不兜住就会表现为"点了没反应"
+            showUiError("新增条目失败", t);
         }
+    }
+
+    /** 把 UI 层异常显式弹给用户（桌面端无控制台，否则异常会静默消失） */
+    private void showUiError(String title, Throwable t) {
+        java.io.StringWriter sw = new java.io.StringWriter();
+        t.printStackTrace(new java.io.PrintWriter(sw));
+        String trace = sw.toString();
+        if (trace.length() > 1500) {
+            trace = trace.substring(0, 1500) + "\n…（已截断，完整栈已输出到标准错误）";
+        }
+        System.err.println(sw);
+        JOptionPane.showMessageDialog(this, title + "\n\n" + trace, title, JOptionPane.ERROR_MESSAGE);
     }
 
     private void onDelete() {
@@ -1126,6 +1145,11 @@ public class MainFrame extends JFrame {
     /** 检查更新：多源（CDN/镜像/直连）检查新版本，命中源提示源名并打开下载页 */
     private void checkForUpdate() {
         new UpdateDialog(this, APP_VERSION).setVisible(true);
+    }
+
+    /** 关于：版本信息 + 检查更新 + 作者主页 */
+    private void onAbout() {
+        new AboutDialog(this, APP_VERSION).setVisible(true);
     }
 
     /** 列表行右键菜单：复制账号/密码/邮箱（统一走 ClipboardSafe 30 秒自动清除） */

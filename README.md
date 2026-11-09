@@ -6,7 +6,7 @@
 
 | 平台 | 版本 | 下载 |
 | --- | --- | --- |
-| Windows PC | v8.35.5 | [安装程序 MimaVault-Setup-v8.35.5.exe](https://github.com/startime-ltk/MimaVault/releases/download/v8.35.5/MimaVault-Setup-v8.35.5.exe) |
+| Windows PC | v8.35.6 | [安装程序 MimaVault-Setup-v8.35.6.exe](https://github.com/startime-ltk/MimaVault/releases/download/v8.35.6/MimaVault-Setup-v8.35.6.exe) |
 | Android（当前版） | A8.31.3 | [前往安卓仓 Releases 下载](https://github.com/startime-ltk/-MimaVault-app/releases/latest) |
 
 全部版本见 [Releases](https://github.com/startime-ltk/MimaVault/releases)。
@@ -79,6 +79,7 @@ PC 端源码在本仓 `main` 分支；安卓端源码已迁至独立仓库 [star
 - 全局快捷键：`Ctrl+Shift+M` 显示 / 隐藏主界面，`Ctrl+Shift+L` 锁定
 - 3 分钟无操作自动登出
 - 手动「检查更新」：应用内完成下载、校验与静默安装，不再跳转下载页，详见下方「更新机制」
+- **关于**（v8.35.6）：当前版本、检查更新入口、作者 GitHub 主页（点击可跳转）
 
 ### 更新机制
 
