@@ -7,14 +7,27 @@
 | 平台 | 版本 | 下载 |
 | --- | --- | --- |
 | Windows PC | v8.35.5 | [安装程序 MimaVault-Setup-v8.35.5.exe](https://github.com/startime-ltk/MimaVault/releases/download/v8.35.5/MimaVault-Setup-v8.35.5.exe) |
-| Android | A9.9.16 | [MimaVault-A9.9.16.apk](https://github.com/startime-ltk/MimaVault/releases/download/A9.9.16/MimaVault-A9.9.16.apk) |
+| Android（当前版） | A8.31.3 | [前往安卓仓 Releases 下载](https://github.com/startime-ltk/-MimaVault-app/releases/latest) |
 
 全部版本见 [Releases](https://github.com/startime-ltk/MimaVault/releases)。
 
 > **关于 jar**：自 v8.35.x 起 PC 端改用 `jpackage` 打 app-image 再套 Inno Setup 安装包，不再单独发布可执行 jar。
 > 需要 jar 请自行构建（见下方「构建与运行」）。旧版 v8.30.2 仍提供了 [jar](https://github.com/startime-ltk/MimaVault/releases/download/v8.30.2/MimaVault_v8.30.2.jar)。
 
-PC 端源码在 `main` 分支，安卓端源码在 `android` 分支。
+PC 端源码在本仓 `main` 分支；安卓端源码已迁至独立仓库 [startime-ltk/-MimaVault-app](https://github.com/startime-ltk/-MimaVault-app)。
+
+### 版本顺序（安卓端）
+
+> 当前版 **A8.31.3**（2026-11-05）在前；**A9.x 线是 2026 年 8–10 月的旧实现**，
+> 版本号数字虽更大（A9.9.16 / A9.18.0）但已停止维护，作为历史归档排在后面。
+> **请勿按版本号大小判断新旧。**
+
+| 版本线 | 状态 | 位置 |
+| --- | --- | --- |
+| A8.31.x | 当前版本（在前） | 安卓仓 `main` 分支 / `vA8.31.3` Release |
+| A9.x | 历史归档（在后） | 安卓仓 `archive/android-a9` 分支 / `legacy/A9.9.16` Release；本仓完整历史保留于 tag `legacy/android-a9-head` |
+
+历史 APK 与全部提交清单已备份，旧包**不建议新安装**。
 
 ## 功能特性
 
